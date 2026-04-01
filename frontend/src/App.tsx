@@ -15,6 +15,8 @@ import PurchasesPage from '@/pages/purchases/PurchasesPage';
 import SalesPage from '@/pages/sales/SalesPage';
 import ReportsPage from '@/pages/reports/ReportsPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
+import AdminDashboardPage from '@/pages/admin/AdminDashboardPage';
+import AdminCompaniesPage from '@/pages/admin/AdminCompaniesPage';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 
@@ -28,9 +30,9 @@ const queryClient = new QueryClient({
 });
 
 // Helper to wrap a page in the layout + protection
-function ProtectedPage({ children }: { children: React.ReactNode }) {
+function ProtectedPage({ children, requiredPermission }: { children: React.ReactNode; requiredPermission?: string }) {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute requiredPermission={requiredPermission}>
       <DashboardLayout>{children}</DashboardLayout>
     </ProtectedRoute>
   );
@@ -50,15 +52,19 @@ function App() {
           <Route path="/dashboard" element={<ProtectedPage><DashboardPage /></ProtectedPage>} />
 
           {/* Core Business Modules */}
-          <Route path="/products" element={<ProtectedPage><ProductsPage /></ProtectedPage>} />
-          <Route path="/inventory" element={<ProtectedPage><InventoryPage /></ProtectedPage>} />
-          <Route path="/customers" element={<ProtectedPage><CustomersPage /></ProtectedPage>} />
-          <Route path="/vendors" element={<ProtectedPage><VendorsPage /></ProtectedPage>} />
-          <Route path="/warehouses" element={<ProtectedPage><WarehousesPage /></ProtectedPage>} />
-          <Route path="/purchases" element={<ProtectedPage><PurchasesPage /></ProtectedPage>} />
-          <Route path="/sales" element={<ProtectedPage><SalesPage /></ProtectedPage>} />
-          <Route path="/reports" element={<ProtectedPage><ReportsPage /></ProtectedPage>} />
-          <Route path="/settings" element={<ProtectedPage><SettingsPage /></ProtectedPage>} />
+          <Route path="/products" element={<ProtectedPage requiredPermission="product.view"><ProductsPage /></ProtectedPage>} />
+          <Route path="/inventory" element={<ProtectedPage requiredPermission="inventory.view"><InventoryPage /></ProtectedPage>} />
+          <Route path="/customers" element={<ProtectedPage requiredPermission="customer.view"><CustomersPage /></ProtectedPage>} />
+          <Route path="/vendors" element={<ProtectedPage requiredPermission="vendor.view"><VendorsPage /></ProtectedPage>} />
+          <Route path="/warehouses" element={<ProtectedPage requiredPermission="warehouse.view"><WarehousesPage /></ProtectedPage>} />
+          <Route path="/purchases" element={<ProtectedPage requiredPermission="purchase.view"><PurchasesPage /></ProtectedPage>} />
+          <Route path="/sales" element={<ProtectedPage requiredPermission="sales.view"><SalesPage /></ProtectedPage>} />
+          <Route path="/reports" element={<ProtectedPage requiredPermission="reports.view"><ReportsPage /></ProtectedPage>} />
+          <Route path="/settings" element={<ProtectedPage requiredPermission="settings.read"><SettingsPage /></ProtectedPage>} />
+          
+          {/* Platform Admin */}
+          <Route path="/admin/dashboard" element={<ProtectedPage requiredPermission="*"><AdminDashboardPage /></ProtectedPage>} />
+          <Route path="/admin/companies" element={<ProtectedPage requiredPermission="*"><AdminCompaniesPage /></ProtectedPage>} />
 
           {/* Root redirect */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />

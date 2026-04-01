@@ -7,8 +7,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { User, UserSchema } from '../../schemas/user.schema';
 import { Company, CompanySchema } from '../../schemas/company.schema';
+import { TenantModule } from '../tenant/tenant.module';
+import { DatabaseModule } from '../../database/database.module';
 
 @Module({
   imports: [
@@ -24,9 +25,10 @@ import { Company, CompanySchema } from '../../schemas/company.schema';
       } as any),
     }),
     MongooseModule.forFeature([
-      { name: User.name, schema: UserSchema },
       { name: Company.name, schema: CompanySchema },
     ]),
+    TenantModule,
+    DatabaseModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

@@ -10,18 +10,18 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 export class VendorsController {
   constructor(private readonly vendorsService: VendorsService) {}
 
-  @Post() @RequirePermissions('vendors.write')
+  @Post() @RequirePermissions('vendor.create')
   create(@Request() req: any, @Body() dto: CreateVendorDto) { return this.vendorsService.create(req.user.companyId, dto); }
 
-  @Get() @RequirePermissions('vendors.read')
+  @Get() @RequirePermissions('vendor.view')
   findAll(@Request() req: any, @Query() query: PaginationDto) { return this.vendorsService.findAll(req.user.companyId, query); }
 
-  @Get(':id') @RequirePermissions('vendors.read')
+  @Get(':id') @RequirePermissions('vendor.view')
   findOne(@Request() req: any, @Param('id') id: string) { return this.vendorsService.findOne(req.user.companyId, id); }
 
-  @Put(':id') @RequirePermissions('vendors.update')
+  @Put(':id') @RequirePermissions('vendor.update')
   update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateVendorDto) { return this.vendorsService.update(req.user.companyId, id, dto); }
 
-  @Delete(':id') @RequirePermissions('vendors.delete')
+  @Delete(':id') @RequirePermissions('vendor.delete')
   remove(@Request() req: any, @Param('id') id: string) { return this.vendorsService.remove(req.user.companyId, id); }
 }

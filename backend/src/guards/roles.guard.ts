@@ -6,88 +6,15 @@ import {
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import {
+  PERMISSIONS_KEY,
+  ROLE_HIERARCHY,
+  DEFAULT_ROLE_PERMISSIONS,
+} from '../constants/permissions';
 
-// Permission format: 'module.action' e.g. 'products.read', 'products.write', 'products.update', 'products.delete'
-export const PERMISSIONS_KEY = 'permissions';
 export const RequirePermissions = (...permissions: string[]) =>
   SetMetadata(PERMISSIONS_KEY, permissions);
 
-// Role hierarchy - higher roles inherit all lower permissions
-const ROLE_HIERARCHY: Record<string, number> = {
-  super_admin: 100,
-  company_owner: 90,
-  inventory_manager: 60,
-  sales_manager: 60,
-  purchase_manager: 60,
-  accountant: 50,
-  staff: 30,
-  read_only: 10,
-};
-
-// Default permissions per role
-const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
-  super_admin: ['*'],
-  company_owner: ['*'],
-  inventory_manager: [
-    'products.read', 'products.write', 'products.update', 'products.delete',
-    'categories.read', 'categories.write', 'categories.update', 'categories.delete',
-    'inventory.read', 'inventory.write', 'inventory.update', 'inventory.delete',
-    'warehouses.read', 'warehouses.write', 'warehouses.update',
-    'vendors.read',
-    'customers.read',
-    'purchases.read', 'purchases.write', 'purchases.update',
-    'reports.read',
-    'dashboard.read',
-  ],
-  sales_manager: [
-    'products.read',
-    'categories.read',
-    'inventory.read',
-    'customers.read', 'customers.write', 'customers.update',
-    'sales.read', 'sales.write', 'sales.update', 'sales.delete',
-    'reports.read',
-    'dashboard.read',
-  ],
-  purchase_manager: [
-    'products.read',
-    'categories.read',
-    'inventory.read',
-    'vendors.read', 'vendors.write', 'vendors.update',
-    'purchases.read', 'purchases.write', 'purchases.update', 'purchases.delete',
-    'reports.read',
-    'dashboard.read',
-  ],
-  accountant: [
-    'products.read',
-    'customers.read',
-    'vendors.read',
-    'purchases.read',
-    'sales.read',
-    'reports.read',
-    'dashboard.read',
-  ],
-  staff: [
-    'products.read',
-    'inventory.read',
-    'customers.read',
-    'vendors.read',
-    'warehouses.read',
-    'purchases.read',
-    'sales.read',
-    'dashboard.read',
-  ],
-  read_only: [
-    'products.read',
-    'inventory.read',
-    'customers.read',
-    'vendors.read',
-    'warehouses.read',
-    'purchases.read',
-    'sales.read',
-    'dashboard.read',
-    'reports.read',
-  ],
-};
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -117,7 +44,7 @@ export class RolesGuard implements CanActivate {
     }
 
     // Check user's custom permissions first, then fall back to role defaults
-    const userPermissions = user.permissions?.length > 0
+    const userPermissions = (user.permissions && user.permissions.length > 0)
       ? user.permissions
       : DEFAULT_ROLE_PERMISSIONS[user.role] || [];
 
@@ -126,9 +53,17 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const hasPermission = requiredPermissions.every((permission) =>
-      userPermissions.includes(permission),
-    );
+    // New logic: check if user has EXACT permission or module.* permission
+    const hasPermission = requiredPermissions.every((required) => {
+      // Direct match
+      if (userPermissions.includes(required)) return true;
+      
+      // Module wildcard match (e.g. 'product.*' allows 'product.create')
+      const moduleName = required.split('.')[0];
+      if (userPermissions.includes(`${moduleName}.*`)) return true;
+      
+      return false;
+    });
 
     if (!hasPermission) {
       throw new ForbiddenException(

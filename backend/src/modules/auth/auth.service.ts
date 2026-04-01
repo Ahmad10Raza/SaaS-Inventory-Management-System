@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
@@ -9,139 +10,195 @@ import { Model } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 
-import { User, UserDocument } from '../../schemas/user.schema';
 import { Company, CompanyDocument } from '../../schemas/company.schema';
 import { RegisterDto, LoginDto, SetupPasswordDto } from './dto/auth.dto';
+import { TenantProvisionerService } from '../tenant/tenant-provisioner.service';
+import { TenantConnectionService } from '../../database/tenant-connection.service';
+import { DEFAULT_ROLE_PERMISSIONS } from '../../constants/permissions';
+
+
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Company.name) private companyModel: Model<CompanyDocument>,
-    private jwtService: JwtService,
-    private configService: ConfigService,
+    private readonly tenantProvisionerService: TenantProvisionerService,
+    private readonly tenantConnectionService: TenantConnectionService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {}
 
+  // ─────────────────────────────────────────────────────
+  // REGISTER — provisions new company + admin user
+  // ─────────────────────────────────────────────────────
   async register(registerDto: RegisterDto) {
-    // Check if email already exists
-    const existingUser = await this.userModel.findOne({
-      email: registerDto.email.toLowerCase(),
+    // Check for duplicate email across ALL tenant databases via master DB index
+    // (This is a best-effort check — full uniqueness is enforced within each tenant DB)
+    const existingCompanyWithEmail = await this.companyModel.findOne({
+      slug: registerDto.email.toLowerCase().replace(/[^a-z0-9]/g, ''),
     });
-    if (existingUser) {
-      throw new ConflictException('Email already registered');
+
+    // Provision the new tenant (creates DB, seeds collections, creates admin user)
+    let result;
+    try {
+      result = await this.tenantProvisionerService.provisionNewTenant(registerDto);
+    } catch (err) {
+      this.logger.error(`Provisioning failed: ${err.message}`, err.stack);
+      throw err;
     }
 
-    // Create company
-    const slug = registerDto.companyName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
-
-    const existingCompany = await this.companyModel.findOne({ slug });
-    const finalSlug = existingCompany
-      ? `${slug}-${Date.now()}`
-      : slug;
-
-    const company = await this.companyModel.create({
-      name: registerDto.companyName,
-      slug: finalSlug,
-      industry: registerDto.industry,
-      subscriptionPlan: 'free_trial',
-      trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
-      isActive: true,
-    });
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(registerDto.password, 12);
-
-    // Create owner user
-    const user = await this.userModel.create({
-      firstName: registerDto.firstName,
-      lastName: registerDto.lastName,
+    // Generate JWT tokens for immediate login after registration
+    const tokens = await this.generateTokens({
+      userId: result.adminUser._id.toString(),
       email: registerDto.email.toLowerCase(),
-      password: hashedPassword,
-      phone: registerDto.phone,
-      companyId: company._id,
+      companyId: result.company._id.toString(),
+      tenantDbName: result.databaseName,
       role: 'company_owner',
-      permissions: ['*'], // Full access
-      isActive: true,
+      isTemporaryPassword: false,
     });
 
-    // Generate tokens
-    const tokens = await this.generateTokens(user, company);
+    // Persist refresh token in tenant DB
+    const conn = await this.tenantConnectionService.getConnection(result.databaseName);
+    const UserModel = conn.model('User');
 
-    // Save refresh token
-    await this.userModel.findByIdAndUpdate(user._id, {
+    await UserModel.findByIdAndUpdate(result.adminUser._id, {
       refreshToken: tokens.refreshToken,
     });
 
     return {
       ...tokens,
-      user: this.sanitizeUser(user),
-      company,
+      user: result.adminUser,
+      company: result.company,
     };
   }
 
+  // ─────────────────────────────────────────────────────
+  // LOGIN — resolves tenant DB, validates credentials
+  // ─────────────────────────────────────────────────────
   async login(loginDto: LoginDto) {
-    const user = await this.userModel.findOne({
-      email: loginDto.email.toLowerCase(),
-    });
+    const email = loginDto.email.toLowerCase();
+    
+    // Step 1: Optimized Lookup — Find the company by ownerEmail in Master DB
+    let company = await this.companyModel.findOne({ ownerEmail: email, isActive: true }).lean();
 
-    if (!user) {
+    let foundUser: any = null;
+    let foundCompany: any = null;
+
+    if (company) {
+      try {
+        const conn = await this.tenantConnectionService.getConnection(company.databaseName);
+        const UserModel = conn.model('User');
+        foundUser = await UserModel.findOne({ email }).lean();
+        foundCompany = company;
+      } catch (err) {
+        this.logger.error(`Direct login lookup failed for ${company.databaseName}: ${err.message}`);
+      }
+    }
+
+    // Step 2: Legacy Fallback — If not found via ownerEmail index, do the expensive search
+    // (This supports users seeded before the architecture upgrade)
+    if (!foundUser) {
+      this.logger.warn(`Email ${email} not found in user index. Falling back to global search...`);
+      const companies = await this.companyModel.find({ isActive: true }).lean();
+
+      for (const comp of companies) {
+        if (!comp.databaseName || comp.databaseName.length > 38) {
+          this.logger.warn(`Skipping invalid/too-long DB name: ${comp.databaseName}`);
+          continue;
+        }
+
+        try {
+          const conn = await this.tenantConnectionService.getConnection(comp.databaseName);
+          const UserModel = conn.model('User');
+          const user = await UserModel.findOne({ email }).lean();
+          if (user) {
+            foundUser = user;
+            foundCompany = comp;
+            break;
+          }
+        } catch (err) {
+          // Silent skip for individual DB failures
+        }
+      }
+    }
+
+    if (!foundUser) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    if (!user.isActive) {
-      throw new UnauthorizedException('Account is deactivated. Contact your admin.');
+    if (!foundUser.isActive) {
+      throw new UnauthorizedException('Your account is deactivated. Contact your administrator.');
     }
 
-    const isPasswordValid = await bcrypt.compare(
-      loginDto.password,
-      user.password,
-    );
-
+    const isPasswordValid = await bcrypt.compare(loginDto.password, foundUser.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const company = await this.companyModel.findById(user.companyId);
-    if (!company || !company.isActive) {
-      throw new UnauthorizedException('Company account is inactive');
+    if (!foundCompany.isActive) {
+      throw new UnauthorizedException('Your company account is inactive. Contact support.');
     }
 
-    // Generate tokens
-    const tokens = await this.generateTokens(user, company);
+    // Generate tokens with tenantDbName embedded
+    const tokens = await this.generateTokens({
+      userId: foundUser._id.toString(),
+      email: foundUser.email,
+      companyId: foundCompany._id.toString(),
+      tenantDbName: foundCompany.databaseName,
+      role: foundUser.role,
+      isTemporaryPassword: foundUser.isTemporaryPassword || false,
+    });
 
-    // Update refresh token and last login
-    await this.userModel.findByIdAndUpdate(user._id, {
+    // Update refresh token and lastLogin in tenant DB
+    const conn = await this.tenantConnectionService.getConnection(foundCompany.databaseName);
+    const UserModel = conn.model('User');
+
+    await UserModel.findByIdAndUpdate(foundUser._id, {
       refreshToken: tokens.refreshToken,
       lastLogin: new Date(),
     });
 
     return {
       ...tokens,
-      user: this.sanitizeUser(user),
-      company,
+      user: this.sanitizeUser(foundUser),
+      company: foundCompany,
     };
   }
 
+  // ─────────────────────────────────────────────────────
+  // REFRESH TOKEN
+  // ─────────────────────────────────────────────────────
   async refreshToken(refreshToken: string) {
     try {
       const payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get<string>('jwt.refreshSecret'),
       });
 
-      const user = await this.userModel.findById(payload.sub);
+      const tenantDbName = payload.tenantDbName;
+      if (!tenantDbName) throw new UnauthorizedException('Invalid token structure');
+
+      const conn = await this.tenantConnectionService.getConnection(tenantDbName);
+      const UserModel = conn.model('User');
+
+      const user = await UserModel.findById(payload.sub).lean() as any;
       if (!user || user.refreshToken !== refreshToken) {
         throw new UnauthorizedException('Invalid refresh token');
       }
 
-      const company = await this.companyModel.findById(user.companyId);
-      const tokens = await this.generateTokens(user, company);
+      const company = await this.companyModel.findById(payload.companyId).lean();
 
-      await this.userModel.findByIdAndUpdate(user._id, {
-        refreshToken: tokens.refreshToken,
+      const tokens = await this.generateTokens({
+        userId: user._id.toString(),
+        email: user.email,
+        companyId: payload.companyId,
+        tenantDbName,
+        role: user.role,
+        isTemporaryPassword: user.isTemporaryPassword || false,
       });
+
+      await UserModel.findByIdAndUpdate(user._id, { refreshToken: tokens.refreshToken });
 
       return tokens;
     } catch {
@@ -149,13 +206,17 @@ export class AuthService {
     }
   }
 
-  async getProfile(userId: string) {
-    const user = await this.userModel.findById(userId);
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
+  // ─────────────────────────────────────────────────────
+  // GET PROFILE
+  // ─────────────────────────────────────────────────────
+  async getProfile(userId: string, tenantDbName: string, companyId: string) {
+    const conn = await this.tenantConnectionService.getConnection(tenantDbName);
+    const UserModel = conn.model('User');
 
-    const company = await this.companyModel.findById(user.companyId);
+    const user = await UserModel.findById(userId).lean() as any;
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const company = await this.companyModel.findById(companyId).lean();
 
     return {
       user: this.sanitizeUser(user),
@@ -163,34 +224,58 @@ export class AuthService {
     };
   }
 
-  async setupPassword(userId: string, dto: SetupPasswordDto) {
-    const user = await this.userModel.findById(userId);
-    if (!user) throw new UnauthorizedException('User not found');
+  // ─────────────────────────────────────────────────────
+  // SETUP PASSWORD (for temp password users)
+  // ─────────────────────────────────────────────────────
+  async setupPassword(userId: string, tenantDbName: string, dto: SetupPasswordDto) {
+    const conn = await this.tenantConnectionService.getConnection(tenantDbName);
+    const UserModel = conn.model('User');
 
     const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
 
-    user.password = hashedPassword;
-    user.isTemporaryPassword = false;
-    await user.save();
+    const updated = await UserModel.findByIdAndUpdate(userId, {
+      password: hashedPassword,
+      isTemporaryPassword: false,
+    }, { new: true }).lean();
 
-    return { message: 'Password successfully updated' };
+    if (!updated) throw new UnauthorizedException('User not found');
+
+    return { message: 'Password updated successfully. Please log in again.' };
   }
 
-  private async generateTokens(user: any, company: any) {
-    const payload = {
-      sub: user._id.toString(),
-      email: user.email,
-      companyId: user.companyId.toString(),
-      role: user.role,
-      isTemporaryPassword: user.isTemporaryPassword || false,
+  async completeTour(userId: string, tenantDbName: string) {
+    const conn = await this.tenantConnectionService.getConnection(tenantDbName);
+    const UserModel = conn.model('User');
+    await UserModel.findByIdAndUpdate(userId, { hasSeenTour: true });
+    return { message: 'Tour completed' };
+  }
+
+  // ─────────────────────────────────────────────────────
+  // Private Helpers
+  // ─────────────────────────────────────────────────────
+  private async generateTokens(payload: {
+    userId: string;
+    email: string;
+    companyId: string;
+    tenantDbName: string;
+    role: string;
+    isTemporaryPassword: boolean;
+  }) {
+    const jwtPayload = {
+      sub: payload.userId,
+      email: payload.email,
+      companyId: payload.companyId,
+      tenantDbName: payload.tenantDbName,
+      role: payload.role,
+      isTemporaryPassword: payload.isTemporaryPassword,
     };
 
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
+      this.jwtService.signAsync(jwtPayload, {
         secret: this.configService.get<string>('jwt.secret')!,
         expiresIn: this.configService.get<string>('jwt.expiration') || '15m',
       } as any),
-      this.jwtService.signAsync(payload, {
+      this.jwtService.signAsync(jwtPayload, {
         secret: this.configService.get<string>('jwt.refreshSecret')!,
         expiresIn: this.configService.get<string>('jwt.refreshExpiration') || '7d',
       } as any),
@@ -200,8 +285,13 @@ export class AuthService {
   }
 
   private sanitizeUser(user: any) {
-    const userObj = user.toObject ? user.toObject() : user;
-    const { password, refreshToken, passwordResetToken, passwordResetExpires, ...sanitized } = userObj;
+    const { password, refreshToken, passwordResetToken, passwordResetExpires, ...sanitized } = user;
+    
+    // Inject default permissions if not present in DB
+    if (!sanitized.permissions || sanitized.permissions.length === 0) {
+      sanitized.permissions = DEFAULT_ROLE_PERMISSIONS[sanitized.role] || [];
+    }
+    
     return sanitized;
   }
 }

@@ -1,15 +1,22 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Product, ProductDocument } from '../../schemas/product.schema';
+import { Injectable, NotFoundException, Inject, Scope } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
+import { Request } from 'express';
+import { Model, Connection } from 'mongoose';
+import { Product, ProductDocument, ProductSchema } from '../../schemas/product.schema';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class ProductsService {
-  constructor(
-    @InjectModel(Product.name) private productModel: Model<ProductDocument>,
-  ) {}
+  private productModel: Model<ProductDocument>;
+
+  constructor(@Inject(REQUEST) private request: any) {
+    const conn = this.request.tenantConnection;
+    if (!conn) {
+      throw new Error('Tenant connection not found in request');
+    }
+    this.productModel = conn.modelNames().includes(Product.name) ? conn.model<any>(Product.name) as any : conn.model<any>(Product.name, ProductSchema) as any;
+  }
 
   async create(companyId: string, dto: CreateProductDto) {
     return this.productModel.create({ ...dto, companyId });

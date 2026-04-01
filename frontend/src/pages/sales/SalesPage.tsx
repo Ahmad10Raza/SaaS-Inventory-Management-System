@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InfoTooltip } from '@/components/ui/tooltip';
 import api from '@/services/api';
+import Can from '@/components/common/Can';
 
 export default function SalesPage() {
   const [page, setPage] = useState(1);
@@ -84,6 +85,15 @@ export default function SalesPage() {
     onError: () => toast.error('Failed to record payment'),
   });
 
+  const updateStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: string, status: string }) => api.put(`/sales/${id}/status`, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      toast.success('Order status updated!');
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to update status'),
+  });
+
   const closeModal = () => {
     setShowModal(false);
     setCustomerId('');
@@ -134,20 +144,22 @@ export default function SalesPage() {
     { key: 'customerId', label: 'Customer', render: (i: any) => i.customerId?.name || '-' },
     { key: 'status', label: 'Status', render: (i: any) => <span className="capitalize">{i.status}</span> },
     { key: 'paymentStatus', label: 'Payment', render: (i: any) => (
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          if (i.paymentStatus !== 'paid') setPaymentModal({ id: i._id, amount: i.totalAmount });
-        }}
-        disabled={i.paymentStatus === 'paid'}
-        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold transition-opacity cursor-pointer disabled:cursor-default disabled:opacity-100 hover:opacity-80 ${
-          i.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' :
-          i.paymentStatus === 'partial' ? 'bg-orange-100 text-orange-700' :
-          'bg-red-100 text-red-700'
-        }`}
-      >
-        {i.paymentStatus.toUpperCase()}
-      </button>
+      <Can permission="sales.pay">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (i.paymentStatus !== 'paid') setPaymentModal({ id: i._id, amount: i.totalAmount });
+          }}
+          disabled={i.paymentStatus === 'paid'}
+          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold transition-opacity cursor-pointer disabled:cursor-default disabled:opacity-100 hover:opacity-80 ${
+            i.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' :
+            i.paymentStatus === 'partial' ? 'bg-orange-100 text-orange-700' :
+            'bg-red-100 text-red-700'
+          }`}
+        >
+          {i.paymentStatus.toUpperCase()}
+        </button>
+      </Can>
     )},
     { key: 'totalAmount', label: 'Total', render: (i: any) => `₹${i.totalAmount?.toLocaleString()}` },
     { key: 'createdAt', label: 'Date', render: (i: any) => new Date(i.createdAt).toLocaleDateString() },
@@ -174,6 +186,8 @@ export default function SalesPage() {
         onPageChange={setPage}
         onAdd={() => setShowModal(true)}
         addLabel="New Sale"
+        addPermission="sales.create"
+        viewPermission="sales.view"
       />
 
       {/* Create Sale Modal */}

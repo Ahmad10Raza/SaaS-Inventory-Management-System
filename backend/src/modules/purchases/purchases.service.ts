@@ -1,21 +1,30 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Purchase, PurchaseDocument } from '../../schemas/purchase.schema';
-import { Inventory, InventoryDocument } from '../../schemas/inventory.schema';
-import { StockLog, StockLogDocument } from '../../schemas/stock-log.schema';
-import { Product, ProductDocument } from '../../schemas/product.schema';
+import { Injectable, NotFoundException, BadRequestException, Inject, Scope, ForbiddenException } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
+import { Request } from 'express';
+import { Model, Connection } from 'mongoose';
+import { Purchase, PurchaseDocument, PurchaseSchema } from '../../schemas/purchase.schema';
+import { Inventory, InventoryDocument, InventorySchema } from '../../schemas/inventory.schema';
+import { StockLog, StockLogDocument, StockLogSchema } from '../../schemas/stock-log.schema';
+import { Product, ProductDocument, ProductSchema } from '../../schemas/product.schema';
 import { CreatePurchaseDto, UpdatePurchaseStatusDto, PurchasePaymentDto } from './dto/purchase.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class PurchasesService {
-  constructor(
-    @InjectModel(Purchase.name) private purchaseModel: Model<PurchaseDocument>,
-    @InjectModel(Inventory.name) private inventoryModel: Model<InventoryDocument>,
-    @InjectModel(StockLog.name) private stockLogModel: Model<StockLogDocument>,
-    @InjectModel(Product.name) private productModel: Model<ProductDocument>,
-  ) {}
+  private purchaseModel: Model<PurchaseDocument>;
+  private inventoryModel: Model<InventoryDocument>;
+  private stockLogModel: Model<StockLogDocument>;
+  private productModel: Model<ProductDocument>;
+
+  constructor(@Inject(REQUEST) private request: any) {
+    const conn = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    
+    this.purchaseModel = conn.model(Purchase.name, PurchaseSchema) as any;
+    this.inventoryModel = conn.model(Inventory.name, InventorySchema) as any;
+    this.stockLogModel = conn.model(StockLog.name, StockLogSchema) as any;
+    this.productModel = conn.model(Product.name, ProductSchema) as any;
+  }
 
   private generatePONumber(): string {
     const prefix = 'PO';
@@ -35,6 +44,9 @@ export class PurchasesService {
     const totalTax = items.reduce((s, i) => s + i.taxAmount, 0);
     const totalAmount = subtotal + totalTax;
 
+    const userRole = this.request.user?.role;
+    const initialStatus = (userRole === 'staff' || userRole === 'read_only') ? 'draft' : 'pending';
+
     return this.purchaseModel.create({
       companyId,
       purchaseNumber: this.generatePONumber(),
@@ -44,7 +56,7 @@ export class PurchasesService {
       subtotal,
       taxAmount: totalTax,
       totalAmount,
-      status: 'pending',
+      status: initialStatus,
       paymentStatus: 'unpaid',
       paidAmount: 0,
       expectedDeliveryDate: dto.expectedDeliveryDate ? new Date(dto.expectedDeliveryDate) : undefined,
@@ -87,13 +99,31 @@ export class PurchasesService {
     const po = await this.purchaseModel.findOne({ _id: id, companyId });
     if (!po) throw new NotFoundException('Purchase order not found');
 
-    po.status = dto.status as any;
+    const previousStatus = po.status;
+    const userRole = this.request.user?.role;
 
+    // Approval Workflow Logic
     if (dto.status === 'approved') {
+      if (!['super_admin', 'company_owner', 'purchase_manager'].includes(userRole)) {
+        throw new ForbiddenException('Only managers or admins can approve purchase orders');
+      }
+      if (previousStatus !== 'pending' && previousStatus !== 'draft') {
+        throw new BadRequestException(`Cannot approve PO from ${previousStatus} status`);
+      }
       po.approvedBy = userId as any;
     }
 
-    if (dto.status === 'received' && po.warehouseId) {
+    if (dto.status === 'received') {
+      if (!['super_admin', 'company_owner', 'purchase_manager', 'warehouse_manager'].includes(userRole)) {
+        throw new ForbiddenException('Only warehouse managers or admins can mark orders as received');
+      }
+      if (previousStatus !== 'approved') {
+        throw new BadRequestException('Purchase order must be approved before it can be marked as received');
+      }
+      if (!po.warehouseId) {
+        throw new BadRequestException('A warehouse must be specified to receive stock');
+      }
+      
       // Auto stock-in when PO is received
       for (const item of po.items) {
         let inv = await this.inventoryModel.findOne({
@@ -129,6 +159,7 @@ export class PurchasesService {
       po.receivedDate = new Date();
     }
 
+    po.status = dto.status as any;
     await po.save();
     return po;
   }

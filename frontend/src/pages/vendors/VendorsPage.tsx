@@ -87,7 +87,12 @@ export default function VendorsPage() {
         isLoading={isLoading} searchPlaceholder="Search vendors..."
         onSearch={(q) => { setSearch(q); setPage(1); }} onPageChange={setPage}
         onAdd={() => { reset(); setShowModal(true); }} onEdit={handleEdit}
-        onDelete={(i) => { if (confirm('Deactivate?')) deleteMut.mutate(i._id); }} addLabel="Add Vendor" />
+        onDelete={(i) => { if (confirm('Deactivate?')) deleteMut.mutate(i._id); }} addLabel="Add Vendor"
+        addPermission="vendor.create"
+        editPermission="vendor.update"
+        deletePermission="vendor.delete"
+        viewPermission="vendor.view"
+      />
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">

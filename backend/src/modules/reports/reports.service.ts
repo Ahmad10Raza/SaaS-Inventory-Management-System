@@ -1,24 +1,33 @@
-import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Sale, SaleDocument } from '../../schemas/sale.schema';
-import { Purchase, PurchaseDocument } from '../../schemas/purchase.schema';
-import { Inventory, InventoryDocument } from '../../schemas/inventory.schema';
-import { StockLog, StockLogDocument } from '../../schemas/stock-log.schema';
+import { Injectable, Inject, Scope } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
+import { Request } from 'express';
+import { Model, Connection } from 'mongoose';
+import { Sale, SaleDocument, SaleSchema } from '../../schemas/sale.schema';
+import { Purchase, PurchaseDocument, PurchaseSchema } from '../../schemas/purchase.schema';
+import { Inventory, InventoryDocument, InventorySchema } from '../../schemas/inventory.schema';
+import { StockLog, StockLogDocument, StockLogSchema } from '../../schemas/stock-log.schema';
 
 export interface ReportFilterDto {
   startDate?: string;
   endDate?: string;
 }
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class ReportsService {
-  constructor(
-    @InjectModel(Sale.name) private saleModel: Model<SaleDocument>,
-    @InjectModel(Purchase.name) private purchaseModel: Model<PurchaseDocument>,
-    @InjectModel(Inventory.name) private inventoryModel: Model<InventoryDocument>,
-    @InjectModel(StockLog.name) private stockLogModel: Model<StockLogDocument>,
-  ) {}
+  private saleModel: Model<SaleDocument>;
+  private purchaseModel: Model<PurchaseDocument>;
+  private inventoryModel: Model<InventoryDocument>;
+  private stockLogModel: Model<StockLogDocument>;
+
+  constructor(@Inject(REQUEST) private request: any) {
+    const conn = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    
+    this.saleModel = conn.modelNames().includes(Sale.name) ? conn.model<any>(Sale.name) as any : conn.model<any>(Sale.name, SaleSchema) as any;
+    this.purchaseModel = conn.modelNames().includes(Purchase.name) ? conn.model<any>(Purchase.name) as any : conn.model<any>(Purchase.name, PurchaseSchema) as any;
+    this.inventoryModel = conn.modelNames().includes(Inventory.name) ? conn.model<any>(Inventory.name) as any : conn.model<any>(Inventory.name, InventorySchema) as any;
+    this.stockLogModel = conn.modelNames().includes(StockLog.name) ? conn.model<any>(StockLog.name) as any : conn.model<any>(StockLog.name, StockLogSchema) as any;
+  }
 
   private getDateFilter(filters: ReportFilterDto) {
     const filter: any = {};

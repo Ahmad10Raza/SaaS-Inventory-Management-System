@@ -1,23 +1,34 @@
-import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Product, ProductDocument } from '../../schemas/product.schema';
-import { Customer, CustomerDocument } from '../../schemas/customer.schema';
-import { Vendor, VendorDocument } from '../../schemas/vendor.schema';
-import { Sale, SaleDocument } from '../../schemas/sale.schema';
-import { Purchase, PurchaseDocument } from '../../schemas/purchase.schema';
-import { StockLog, StockLogDocument } from '../../schemas/stock-log.schema';
+import { Injectable, Inject, Scope } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
+import { Request } from 'express';
+import { Model, Connection } from 'mongoose';
+import { Product, ProductDocument, ProductSchema } from '../../schemas/product.schema';
+import { Customer, CustomerDocument, CustomerSchema } from '../../schemas/customer.schema';
+import { Vendor, VendorDocument, VendorSchema } from '../../schemas/vendor.schema';
+import { Sale, SaleDocument, SaleSchema } from '../../schemas/sale.schema';
+import { Purchase, PurchaseDocument, PurchaseSchema } from '../../schemas/purchase.schema';
+import { StockLog, StockLogDocument, StockLogSchema } from '../../schemas/stock-log.schema';
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class DashboardService {
-  constructor(
-    @InjectModel(Product.name) private productModel: Model<ProductDocument>,
-    @InjectModel(Customer.name) private customerModel: Model<CustomerDocument>,
-    @InjectModel(Vendor.name) private vendorModel: Model<VendorDocument>,
-    @InjectModel(Sale.name) private saleModel: Model<SaleDocument>,
-    @InjectModel(Purchase.name) private purchaseModel: Model<PurchaseDocument>,
-    @InjectModel(StockLog.name) private stockLogModel: Model<StockLogDocument>,
-  ) {}
+  private productModel: Model<ProductDocument>;
+  private customerModel: Model<CustomerDocument>;
+  private vendorModel: Model<VendorDocument>;
+  private saleModel: Model<SaleDocument>;
+  private purchaseModel: Model<PurchaseDocument>;
+  private stockLogModel: Model<StockLogDocument>;
+
+  constructor(@Inject(REQUEST) private request: any) {
+    const conn = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    
+    this.productModel = conn.modelNames().includes(Product.name) ? conn.model<any>(Product.name) as any : conn.model<any>(Product.name, ProductSchema) as any;
+    this.customerModel = conn.modelNames().includes(Customer.name) ? conn.model<any>(Customer.name) as any : conn.model<any>(Customer.name, CustomerSchema) as any;
+    this.vendorModel = conn.modelNames().includes(Vendor.name) ? conn.model<any>(Vendor.name) as any : conn.model<any>(Vendor.name, VendorSchema) as any;
+    this.saleModel = conn.modelNames().includes(Sale.name) ? conn.model<any>(Sale.name) as any : conn.model<any>(Sale.name, SaleSchema) as any;
+    this.purchaseModel = conn.modelNames().includes(Purchase.name) ? conn.model<any>(Purchase.name) as any : conn.model<any>(Purchase.name, PurchaseSchema) as any;
+    this.stockLogModel = conn.modelNames().includes(StockLog.name) ? conn.model<any>(StockLog.name) as any : conn.model<any>(StockLog.name, StockLogSchema) as any;
+  }
 
   async getOverview(companyId: string) {
     const now = new Date();

@@ -20,6 +20,8 @@ import {
   Sun,
   Receipt,
   Box,
+  Building2,
+  PieChart,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,16 +34,21 @@ interface DashboardLayoutProps {
 }
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Products', href: '/products', icon: Box },
-  { name: 'Inventory', href: '/inventory', icon: PackageSearch },
-  { name: 'Customers', href: '/customers', icon: Users },
-  { name: 'Vendors', href: '/vendors', icon: Truck },
-  { name: 'Warehouses', href: '/warehouses', icon: Warehouse },
-  { name: 'Purchases', href: '/purchases', icon: ShoppingCart },
-  { name: 'Sales', href: '/sales', icon: Receipt },
-  { name: 'Reports', href: '/reports', icon: FileBarChart },
-  { name: 'Settings', href: '/settings', icon: Settings },
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, requiredPermission: 'dashboard.view' },
+  { name: 'Products', href: '/products', icon: Box, requiredPermission: 'product.view' },
+  { name: 'Inventory', href: '/inventory', icon: PackageSearch, requiredPermission: 'inventory.view' },
+  { name: 'Customers', href: '/customers', icon: Users, requiredPermission: 'customer.view' },
+  { name: 'Vendors', href: '/vendors', icon: Truck, requiredPermission: 'vendor.view' },
+  { name: 'Warehouses', href: '/warehouses', icon: Warehouse, requiredPermission: 'warehouse.view' },
+  { name: 'Purchases', href: '/purchases', icon: ShoppingCart, requiredPermission: 'purchase.view' },
+  { name: 'Sales', href: '/sales', icon: Receipt, requiredPermission: 'sales.view' },
+  { name: 'Reports', href: '/reports', icon: FileBarChart, requiredPermission: 'reports.view' },
+  { name: 'Settings', href: '/settings', icon: Settings, requiredPermission: 'settings.view' },
+];
+
+const adminNavigation = [
+  { name: 'Platform Stats', href: '/admin/dashboard', icon: PieChart },
+  { name: 'Manage Companies', href: '/admin/companies', icon: Building2 },
 ];
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
@@ -96,14 +103,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => useAuthStore.getState().replayTour()}
-              className="hidden lg:flex"
-            >
-              Replay Tour
-            </Button>
             <button
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden text-muted-foreground hover:text-foreground"
@@ -115,7 +114,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navigation.map((item) => {
+          {navigation
+            .filter((item) => !item.requiredPermission || useAuthStore.getState().hasPermission(item.requiredPermission))
+            .map((item) => {
             const isActive = location.pathname === item.href;
             return (
               <Link
@@ -143,6 +144,35 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               </Link>
             );
           })}
+
+          {user?.role === 'super_admin' && (
+            <div className="pt-4 mt-4 border-t border-sidebar-border">
+              <p className="px-3 mb-2 text-[10px] uppercase tracking-widest font-bold text-muted-foreground opacity-50">Platform Admin</p>
+              {adminNavigation.map((item) => {
+                const isActive = location.pathname === item.href;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group',
+                      isActive
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent/50'
+                    )}
+                  >
+                    <item.icon
+                      className={cn(
+                        'w-5 h-5 transition-colors',
+                        isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-sidebar-foreground'
+                      )}
+                    />
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </nav>
 
         {/* Sidebar Footer */}

@@ -30,6 +30,7 @@ export class User {
       'inventory_manager',
       'sales_manager',
       'purchase_manager',
+      'warehouse_manager',
       'accountant',
       'staff',
       'read_only',
@@ -53,6 +54,9 @@ export class User {
   @Prop()
   lastLogin: Date;
 
+  @Prop({ default: false })
+  hasSeenTour: boolean;
+
   @Prop()
   refreshToken: string;
 
@@ -65,5 +69,5 @@ export class User {
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-// Compound index for unique email per company
-UserSchema.index({ email: 1, companyId: 1 }, { unique: true });
+// Unique email within each tenant database
+UserSchema.index({ email: 1 }, { unique: true });

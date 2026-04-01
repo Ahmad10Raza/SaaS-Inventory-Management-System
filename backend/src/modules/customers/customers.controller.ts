@@ -10,18 +10,18 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
-  @Post() @RequirePermissions('customers.write')
+  @Post() @RequirePermissions('customer.create')
   create(@Request() req: any, @Body() dto: CreateCustomerDto) { return this.customersService.create(req.user.companyId, dto); }
 
-  @Get() @RequirePermissions('customers.read')
+  @Get() @RequirePermissions('customer.view')
   findAll(@Request() req: any, @Query() query: PaginationDto) { return this.customersService.findAll(req.user.companyId, query); }
 
-  @Get(':id') @RequirePermissions('customers.read')
+  @Get(':id') @RequirePermissions('customer.view')
   findOne(@Request() req: any, @Param('id') id: string) { return this.customersService.findOne(req.user.companyId, id); }
 
-  @Put(':id') @RequirePermissions('customers.update')
+  @Put(':id') @RequirePermissions('customer.update')
   update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateCustomerDto) { return this.customersService.update(req.user.companyId, id, dto); }
 
-  @Delete(':id') @RequirePermissions('customers.delete')
+  @Delete(':id') @RequirePermissions('customer.delete')
   remove(@Request() req: any, @Param('id') id: string) { return this.customersService.remove(req.user.companyId, id); }
 }

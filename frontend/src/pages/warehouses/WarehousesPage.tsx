@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import api from '@/services/api';
+import Can from '@/components/common/Can';
 
 const schema = z.object({
   name: z.string().min(1, 'Name required'),
@@ -57,9 +58,11 @@ export default function WarehousesPage() {
           <h1 className="text-2xl font-bold">Warehouses</h1>
           <p className="text-muted-foreground text-sm mt-1">Manage your warehouse locations</p>
         </div>
-        <Button onClick={() => { reset(); setShowModal(true); }} className="gap-2 shadow-md">
-          <Plus className="w-4 h-4" /> Add Warehouse
-        </Button>
+        <Can permission="warehouse.create">
+          <Button onClick={() => { reset(); setShowModal(true); }} className="gap-2 shadow-md">
+            <Plus className="w-4 h-4" /> Add Warehouse
+          </Button>
+        </Can>
       </div>
 
       {isLoading ? (
@@ -104,13 +107,17 @@ export default function WarehousesPage() {
                   )}
                 </div>
                 <div className="flex gap-2 pt-2">
-                  <Button variant="outline" size="sm" className="flex-1" onClick={() => {
-                    setEditingId(w._id);
-                    ['name', 'capacity', 'phone', 'email'].forEach(k => setValue(k as any, w[k] || ''));
-                    setShowModal(true);
-                  }}>Edit</Button>
-                  <Button variant="outline" size="sm" className="text-destructive hover:text-destructive"
-                    onClick={() => { if (confirm('Deactivate?')) deleteMut.mutate(w._id); }}>Delete</Button>
+                  <Can permission="warehouse.update">
+                    <Button variant="outline" size="sm" className="flex-1" onClick={() => {
+                      setEditingId(w._id);
+                      ['name', 'capacity', 'phone', 'email'].forEach(k => setValue(k as any, w[k] || ''));
+                      setShowModal(true);
+                    }}>Edit</Button>
+                  </Can>
+                  <Can permission="warehouse.delete">
+                    <Button variant="outline" size="sm" className="text-destructive hover:text-destructive"
+                      onClick={() => { if (confirm('Deactivate?')) deleteMut.mutate(w._id); }}>Delete</Button>
+                  </Can>
                 </div>
               </CardContent>
             </Card>

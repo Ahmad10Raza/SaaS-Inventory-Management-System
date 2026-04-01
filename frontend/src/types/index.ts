@@ -12,6 +12,7 @@ export interface User {
   isActive: boolean;
   isEmailVerified: boolean;
   isTemporaryPassword?: boolean;
+  hasSeenTour?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -22,6 +23,7 @@ export type UserRole =
   | 'inventory_manager'
   | 'sales_manager'
   | 'purchase_manager'
+  | 'warehouse_manager'
   | 'accountant'
   | 'staff'
   | 'read_only';

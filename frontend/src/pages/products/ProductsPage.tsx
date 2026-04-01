@@ -70,11 +70,11 @@ export default function ProductsPage() {
     setShowModal(true);
   };
 
-  const onSubmit = (formData: ProductFormData) => {
+  const onSubmit = (data: ProductFormData) => {
     if (editingId) {
-      updateMutation.mutate({ id: editingId, data: formData });
+      updateMutation.mutate({ id: editingId, data });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(data);
     }
   };
 
@@ -119,6 +119,9 @@ export default function ProductsPage() {
         onEdit={handleEdit}
         onDelete={(item) => { if (confirm('Deactivate this product?')) deleteMutation.mutate(item._id); }}
         addLabel="Add Product"
+        addPermission="product.create"
+        editPermission="product.update"
+        deletePermission="product.delete"
       />
 
       {/* Add/Edit Modal */}

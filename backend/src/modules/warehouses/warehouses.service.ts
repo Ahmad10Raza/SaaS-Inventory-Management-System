@@ -1,12 +1,20 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Warehouse, WarehouseDocument } from '../../schemas/warehouse.schema';
+import { Injectable, NotFoundException, Inject, Scope } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
+import { Request } from 'express';
+import { Model, Connection } from 'mongoose';
+import { Warehouse, WarehouseDocument, WarehouseSchema } from '../../schemas/warehouse.schema';
 import { CreateWarehouseDto, UpdateWarehouseDto } from './dto/warehouse.dto';
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class WarehousesService {
-  constructor(@InjectModel(Warehouse.name) private warehouseModel: Model<WarehouseDocument>) {}
+  private warehouseModel: Model<WarehouseDocument>;
+
+  constructor(@Inject(REQUEST) private request: any) {
+    const conn = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    
+    this.warehouseModel = conn.modelNames().includes(Warehouse.name) ? conn.model<any>(Warehouse.name) as any : conn.model<any>(Warehouse.name, WarehouseSchema) as any;
+  }
 
   async create(companyId: string, dto: CreateWarehouseDto) {
     return this.warehouseModel.create({ ...dto, companyId });

@@ -1,12 +1,20 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Category, CategoryDocument } from '../../schemas/category.schema';
+import { Injectable, NotFoundException, Inject, Scope } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
+import { Request } from 'express';
+import { Model, Connection } from 'mongoose';
+import { Category, CategoryDocument, CategorySchema } from '../../schemas/category.schema';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto';
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class CategoriesService {
-  constructor(@InjectModel(Category.name) private categoryModel: Model<CategoryDocument>) {}
+  private categoryModel: Model<CategoryDocument>;
+
+  constructor(@Inject(REQUEST) private request: any) {
+    const conn = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    
+    this.categoryModel = conn.modelNames().includes(Category.name) ? conn.model<any>(Category.name) as any : conn.model<any>(Category.name, CategorySchema) as any;
+  }
 
   async create(companyId: string, dto: CreateCategoryDto) {
     return this.categoryModel.create({ ...dto, companyId });

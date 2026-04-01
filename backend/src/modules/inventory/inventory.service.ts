@@ -1,19 +1,27 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Inventory, InventoryDocument } from '../../schemas/inventory.schema';
-import { StockLog, StockLogDocument } from '../../schemas/stock-log.schema';
-import { Product, ProductDocument } from '../../schemas/product.schema';
+import { Injectable, NotFoundException, BadRequestException, Inject, Scope } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
+import { Request } from 'express';
+import { Model, Connection } from 'mongoose';
+import { Inventory, InventoryDocument, InventorySchema } from '../../schemas/inventory.schema';
+import { StockLog, StockLogDocument, StockLogSchema } from '../../schemas/stock-log.schema';
+import { Product, ProductDocument, ProductSchema } from '../../schemas/product.schema';
 import { StockInDto, StockOutDto, StockAdjustDto, StockTransferDto } from './dto/inventory.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class InventoryService {
-  constructor(
-    @InjectModel(Inventory.name) private inventoryModel: Model<InventoryDocument>,
-    @InjectModel(StockLog.name) private stockLogModel: Model<StockLogDocument>,
-    @InjectModel(Product.name) private productModel: Model<ProductDocument>,
-  ) {}
+  private inventoryModel: Model<InventoryDocument>;
+  private stockLogModel: Model<StockLogDocument>;
+  private productModel: Model<ProductDocument>;
+
+  constructor(@Inject(REQUEST) private request: any) {
+    const conn = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    
+    this.inventoryModel = conn.modelNames().includes(Inventory.name) ? conn.model<any>(Inventory.name) as any : conn.model<any>(Inventory.name, InventorySchema) as any;
+    this.stockLogModel = conn.modelNames().includes(StockLog.name) ? conn.model<any>(StockLog.name) as any : conn.model<any>(StockLog.name, StockLogSchema) as any;
+    this.productModel = conn.modelNames().includes(Product.name) ? conn.model<any>(Product.name) as any : conn.model<any>(Product.name, ProductSchema) as any;
+  }
 
   async getStock(companyId: string, query: PaginationDto) {
     const { page = 1, limit = 20, search } = query;

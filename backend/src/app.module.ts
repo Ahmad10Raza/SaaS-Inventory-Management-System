@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule, RequestMethod } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -19,35 +19,17 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { EmailModule } from './modules/email/email.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 import { Company, CompanySchema } from './schemas/company.schema';
-import { User, UserSchema } from './schemas/user.schema';
-import { Role, RoleSchema } from './schemas/role.schema';
-import { Product, ProductSchema } from './schemas/product.schema';
-import { Category, CategorySchema } from './schemas/category.schema';
-import { Customer, CustomerSchema } from './schemas/customer.schema';
-import { Vendor, VendorSchema } from './schemas/vendor.schema';
-import { Warehouse, WarehouseSchema } from './schemas/warehouse.schema';
-import { Inventory, InventorySchema } from './schemas/inventory.schema';
-import { StockLog, StockLogSchema } from './schemas/stock-log.schema';
-import { Purchase, PurchaseSchema } from './schemas/purchase.schema';
-import { Sale, SaleSchema } from './schemas/sale.schema';
-import { Invoice, InvoiceSchema } from './schemas/invoice.schema';
-import {
-  Notification,
-  NotificationSchema,
-} from './schemas/notification.schema';
-import {
-  Subscription,
-  SubscriptionSchema,
-} from './schemas/subscription.schema';
-import {
-  ActivityLog,
-  ActivityLogSchema,
-} from './schemas/activity-log.schema';
+import { Subscription, SubscriptionSchema } from './schemas/subscription.schema';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+
+import { DatabaseModule } from './database/database.module';
+import { TenantModule } from './modules/tenant/tenant.module';
+import { TenantResolverMiddleware } from './middleware/tenant-resolver.middleware';
 
 @Module({
   imports: [
@@ -57,13 +39,18 @@ import { AppService } from './app.service';
       load: [databaseConfig, jwtConfig],
     }),
 
-    // MongoDB
+    // MongoDB — connect to master DB only
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        uri: configService.get<string>('database.uri'),
-      }),
+      useFactory: (configService: ConfigService) => {
+        const baseUri = configService.get<string>('database.uri')!;
+        const masterDb = configService.get<string>('database.masterDbName') || 'saas_master';
+        // Build URI: baseUri/masterDbName?retryWrites=true&w=majority
+        return {
+          uri: `${baseUri}/${masterDb}?retryWrites=true&w=majority`,
+        };
+      },
     }),
 
     // Rate Limiting
@@ -74,25 +61,16 @@ import { AppService } from './app.service';
       },
     ]),
 
-    // Register all schemas globally
+    // Register MASTER schemas globally
     MongooseModule.forFeature([
       { name: Company.name, schema: CompanySchema },
-      { name: User.name, schema: UserSchema },
-      { name: Role.name, schema: RoleSchema },
-      { name: Product.name, schema: ProductSchema },
-      { name: Category.name, schema: CategorySchema },
-      { name: Customer.name, schema: CustomerSchema },
-      { name: Vendor.name, schema: VendorSchema },
-      { name: Warehouse.name, schema: WarehouseSchema },
-      { name: Inventory.name, schema: InventorySchema },
-      { name: StockLog.name, schema: StockLogSchema },
-      { name: Purchase.name, schema: PurchaseSchema },
-      { name: Sale.name, schema: SaleSchema },
-      { name: Invoice.name, schema: InvoiceSchema },
-      { name: Notification.name, schema: NotificationSchema },
       { name: Subscription.name, schema: SubscriptionSchema },
-      { name: ActivityLog.name, schema: ActivityLogSchema },
+      // Other global schemas like global_settings or super_admins can go here
     ]),
+
+    // Core Architecture Modules
+    DatabaseModule,
+    TenantModule,
 
     // Feature modules
     AuthModule,
@@ -108,8 +86,17 @@ import { AppService } from './app.service';
     ReportsModule,
     SettingsModule,
     EmailModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Apply the tenant resolver middleware to all routes except the root auth ones if desired,
+    // but the middleware handles missing headers, so applying it globally is safe.
+    consumer
+      .apply(TenantResolverMiddleware)
+      .forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}

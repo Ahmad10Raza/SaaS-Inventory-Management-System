@@ -1,23 +1,33 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Sale, SaleDocument } from '../../schemas/sale.schema';
-import { Invoice, InvoiceDocument } from '../../schemas/invoice.schema';
-import { Inventory, InventoryDocument } from '../../schemas/inventory.schema';
-import { StockLog, StockLogDocument } from '../../schemas/stock-log.schema';
-import { Product, ProductDocument } from '../../schemas/product.schema';
+import { Injectable, NotFoundException, BadRequestException, Inject, Scope, ForbiddenException } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
+import { Request } from 'express';
+import { Model, Connection } from 'mongoose';
+import { Sale, SaleDocument, SaleSchema } from '../../schemas/sale.schema';
+import { Invoice, InvoiceDocument, InvoiceSchema } from '../../schemas/invoice.schema';
+import { Inventory, InventoryDocument, InventorySchema } from '../../schemas/inventory.schema';
+import { StockLog, StockLogDocument, StockLogSchema } from '../../schemas/stock-log.schema';
+import { Product, ProductDocument, ProductSchema } from '../../schemas/product.schema';
 import { CreateSaleDto, SalePaymentDto } from './dto/sale.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class SalesService {
-  constructor(
-    @InjectModel(Sale.name) private saleModel: Model<SaleDocument>,
-    @InjectModel(Invoice.name) private invoiceModel: Model<InvoiceDocument>,
-    @InjectModel(Inventory.name) private inventoryModel: Model<InventoryDocument>,
-    @InjectModel(StockLog.name) private stockLogModel: Model<StockLogDocument>,
-    @InjectModel(Product.name) private productModel: Model<ProductDocument>,
-  ) {}
+  private saleModel: Model<SaleDocument>;
+  private invoiceModel: Model<InvoiceDocument>;
+  private inventoryModel: Model<InventoryDocument>;
+  private stockLogModel: Model<StockLogDocument>;
+  private productModel: Model<ProductDocument>;
+
+  constructor(@Inject(REQUEST) private request: any) {
+    const conn = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    
+    this.saleModel = conn.model(Sale.name, SaleSchema) as any;
+    this.invoiceModel = conn.model(Invoice.name, InvoiceSchema) as any;
+    this.inventoryModel = conn.model(Inventory.name, InventorySchema) as any;
+    this.stockLogModel = conn.model(StockLog.name, StockLogSchema) as any;
+    this.productModel = conn.model(Product.name, ProductSchema) as any;
+  }
 
   private generateNumber(prefix: string): string {
     const ts = Date.now().toString(36).toUpperCase();
@@ -40,38 +50,22 @@ export class SalesService {
     const totalDiscount = items.reduce((s, i) => s + (i.discount || 0), 0);
     const totalAmount = subtotal + totalTax;
 
-    // Deduct stock if warehouse specified
+    // Just check stock availability in create, don't deduct yet. Deduction happens on 'shipped' status.
     if (dto.warehouseId) {
       for (const item of items) {
         const inv = await this.inventoryModel.findOne({
           companyId, productId: item.productId, warehouseId: dto.warehouseId,
         });
         if (!inv || inv.quantity < item.quantity) {
-          throw new BadRequestException(`Insufficient stock for ${item.productName}`);
+          throw new BadRequestException(`Insufficient stock for ${item.productName} in selected warehouse`);
         }
-        const prevQty = inv.quantity;
-        inv.quantity -= item.quantity;
-        await inv.save();
-
-        // Update product total
-        const agg = await this.inventoryModel.aggregate([
-          { $match: { productId: item.productId } },
-          { $group: { _id: null, total: { $sum: '$quantity' } } },
-        ]);
-        await this.productModel.findByIdAndUpdate(item.productId, {
-          currentStock: agg[0]?.total || 0,
-        });
-
-        await this.stockLogModel.create({
-          companyId, productId: item.productId, warehouseId: dto.warehouseId,
-          type: 'stock_out', quantity: item.quantity,
-          previousQuantity: prevQty, newQuantity: inv.quantity,
-          referenceType: 'sale', performedBy: userId,
-        });
       }
     }
 
     const isPaidUpfront = !!dto.paymentMethod && dto.paymentMethod !== 'pending';
+
+    const userRole = this.request.user?.role;
+    const initialStatus = (userRole === 'staff' || userRole === 'read_only') ? 'draft' : 'confirmed';
 
     // Create sale
     const sale = await this.saleModel.create({
@@ -84,7 +78,7 @@ export class SalesService {
       discount: totalDiscount,
       taxAmount: totalTax,
       totalAmount,
-      status: 'confirmed',
+      status: initialStatus,
       paymentStatus: isPaidUpfront ? 'paid' : 'unpaid',
       paidAmount: isPaidUpfront ? totalAmount : 0,
       notes: dto.notes,
@@ -173,6 +167,77 @@ export class SalesService {
       }
     );
 
+    return sale;
+  }
+
+  async updateStatus(companyId: string, id: string, userId: string, status: string) {
+    const sale = await this.saleModel.findOne({ _id: id, companyId });
+    if (!sale) throw new NotFoundException('Sale not found');
+
+    const previousStatus = sale.status;
+    const userRole = this.request.user?.role;
+
+    // Approval Workflow Logic
+    if (status === 'confirmed') {
+      if (!['super_admin', 'company_owner', 'sales_manager'].includes(userRole)) {
+        throw new ForbiddenException('Only managers or admins can confirm sales orders');
+      }
+      if (previousStatus !== 'draft') {
+        throw new BadRequestException(`Cannot confirm order from ${previousStatus} status`);
+      }
+    }
+
+    if (status === 'processing') {
+      if (previousStatus !== 'confirmed') {
+        throw new BadRequestException('Order must be confirmed before processing');
+      }
+    }
+
+    if (status === 'shipped') {
+      if (!['super_admin', 'company_owner', 'sales_manager', 'warehouse_manager', 'staff'].includes(userRole)) {
+        throw new ForbiddenException('You do not have permission to ship orders');
+      }
+      if (previousStatus !== 'processing' && previousStatus !== 'confirmed') {
+        throw new BadRequestException('Order must be in processing or confirmed status before shipping');
+      }
+      if (!sale.warehouseId) {
+        throw new BadRequestException('Cannot ship: No warehouse specified for stock deduction');
+      }
+
+      // Deduct stock on SHIPMENT
+      for (const item of sale.items) {
+        const inv = await this.inventoryModel.findOne({
+          companyId, productId: item.productId, warehouseId: sale.warehouseId,
+        });
+        if (!inv || inv.quantity < item.quantity) {
+          throw new BadRequestException(`Insufficient stock for ${item.productName} in warehouse to complete shipment`);
+        }
+        const prevQty = inv.quantity;
+        inv.quantity -= item.quantity;
+        await inv.save();
+
+        // Update product total
+        const agg = await this.inventoryModel.aggregate([
+          { $match: { productId: item.productId } },
+          { $group: { _id: null, total: { $sum: '$quantity' } } },
+        ]);
+        await this.productModel.findByIdAndUpdate(item.productId, {
+          currentStock: agg[0]?.total || 0,
+        });
+
+        await this.stockLogModel.create({
+          companyId, productId: item.productId, warehouseId: sale.warehouseId,
+          type: 'stock_out', quantity: item.quantity,
+          previousQuantity: prevQty, newQuantity: inv.quantity,
+          reference: sale.saleNumber, referenceType: 'sale', 
+          performedBy: userId,
+        });
+      }
+      sale.shippedDate = new Date();
+    }
+
+    sale.status = status;
+    await sale.save();
     return sale;
   }
 

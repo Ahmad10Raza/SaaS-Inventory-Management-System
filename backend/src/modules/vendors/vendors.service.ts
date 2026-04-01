@@ -1,13 +1,21 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Vendor, VendorDocument } from '../../schemas/vendor.schema';
+import { Injectable, NotFoundException, Inject, Scope } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
+import { Request } from 'express';
+import { Model, Connection } from 'mongoose';
+import { Vendor, VendorDocument, VendorSchema } from '../../schemas/vendor.schema';
 import { CreateVendorDto, UpdateVendorDto } from './dto/vendor.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class VendorsService {
-  constructor(@InjectModel(Vendor.name) private vendorModel: Model<VendorDocument>) {}
+  private vendorModel: Model<VendorDocument>;
+
+  constructor(@Inject(REQUEST) private request: any) {
+    const conn = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    
+    this.vendorModel = conn.modelNames().includes(Vendor.name) ? conn.model<any>(Vendor.name) as any : conn.model<any>(Vendor.name, VendorSchema) as any;
+  }
 
   async create(companyId: string, dto: CreateVendorDto) {
     return this.vendorModel.create({ ...dto, companyId });

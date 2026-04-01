@@ -9,18 +9,18 @@ import { CreateWarehouseDto, UpdateWarehouseDto } from './dto/warehouse.dto';
 export class WarehousesController {
   constructor(private readonly warehousesService: WarehousesService) {}
 
-  @Post() @RequirePermissions('warehouses.write')
+  @Post() @RequirePermissions('warehouse.create')
   create(@Request() req: any, @Body() dto: CreateWarehouseDto) { return this.warehousesService.create(req.user.companyId, dto); }
 
-  @Get() @RequirePermissions('warehouses.read')
+  @Get() @RequirePermissions('warehouse.view')
   findAll(@Request() req: any) { return this.warehousesService.findAll(req.user.companyId); }
 
-  @Get(':id') @RequirePermissions('warehouses.read')
+  @Get(':id') @RequirePermissions('warehouse.view')
   findOne(@Request() req: any, @Param('id') id: string) { return this.warehousesService.findOne(req.user.companyId, id); }
 
-  @Put(':id') @RequirePermissions('warehouses.update')
+  @Put(':id') @RequirePermissions('warehouse.update')
   update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateWarehouseDto) { return this.warehousesService.update(req.user.companyId, id, dto); }
 
-  @Delete(':id') @RequirePermissions('warehouses.delete')
+  @Delete(':id') @RequirePermissions('warehouse.delete')
   remove(@Request() req: any, @Param('id') id: string) { return this.warehousesService.remove(req.user.companyId, id); }
 }

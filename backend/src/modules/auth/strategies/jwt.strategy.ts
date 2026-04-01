@@ -14,14 +14,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    if (!payload.sub || !payload.companyId) {
-      throw new UnauthorizedException();
+    if (!payload.sub || !payload.companyId || !payload.tenantDbName) {
+      throw new UnauthorizedException('Invalid token structure');
     }
     return {
       userId: payload.sub,
       email: payload.email,
       companyId: payload.companyId,
+      tenantDbName: payload.tenantDbName,
       role: payload.role,
+      isTemporaryPassword: payload.isTemporaryPassword || false,
     };
   }
 }

@@ -11,14 +11,17 @@ export class Warehouse {
   @Prop({ required: true })
   name: string;
 
-  @Prop({ type: Object })
-  address: {
+  @Prop({ type: Object, required: false })
+  address?: {
     street: string;
     city: string;
     state: string;
     country: string;
     zipCode: string;
   };
+
+  @Prop()
+  location: string;
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
   managerId: Types.ObjectId;

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import api from '@/services/api';
+import Can from '@/components/common/Can';
 
 export default function PurchasesPage() {
   const [page, setPage] = useState(1);
@@ -136,6 +137,8 @@ export default function PurchasesPage() {
         onAdd={() => setShowModal(true)}
         onView={(i) => setShowViewModal(i)}
         addLabel="Create PO"
+        addPermission="purchase.create"
+        viewPermission="purchase.view"
       />
 
       {/* Create Modal */}
@@ -260,28 +263,34 @@ export default function PurchasesPage() {
                <div className="space-y-3 border-t pt-4">
                 <p className="text-sm font-medium mb-2">Actions Update:</p>
                 {showViewModal.status === 'pending' && (
-                  <Button className="w-full gap-2"
-                   onClick={() => updateStatusMut.mutate({ id: showViewModal._id, status: 'approved' })}
-                   disabled={updateStatusMut.isPending}
-                  >
-                   <CheckCircle className="w-4 h-4" /> Approve Order
-                  </Button>
+                  <Can permission="purchase.update">
+                    <Button className="w-full gap-2"
+                     onClick={() => updateStatusMut.mutate({ id: showViewModal._id, status: 'approved' })}
+                     disabled={updateStatusMut.isPending}
+                    >
+                     <CheckCircle className="w-4 h-4" /> Approve Order
+                    </Button>
+                  </Can>
                 )}
                 {showViewModal.status === 'approved' && (
-                  <Button className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
-                   onClick={() => updateStatusMut.mutate({ id: showViewModal._id, status: 'received' })}
-                   disabled={updateStatusMut.isPending || !showViewModal.warehouseId}
-                  >
-                   <PackageCheck className="w-4 h-4" /> Mark as Received (Auto Stock-in)
-                  </Button>
+                  <Can permission="purchase.approve_received">
+                    <Button className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
+                     onClick={() => updateStatusMut.mutate({ id: showViewModal._id, status: 'received' })}
+                     disabled={updateStatusMut.isPending || !showViewModal.warehouseId}
+                    >
+                     <PackageCheck className="w-4 h-4" /> Mark as Received (Auto Stock-in)
+                    </Button>
+                  </Can>
                 )}
                 {!showViewModal.warehouseId && showViewModal.status === 'approved' && (
                    <p className="text-xs text-red-500 text-center">Cannot receive stock: No warehouse assigned</p>
                 )}
                 {['pending', 'approved'].includes(showViewModal.status) && (
-                   <Button variant="outline" className="w-full text-red-500"
-                    onClick={() => { if(confirm('Cancel order?')) updateStatusMut.mutate({ id: showViewModal._id, status: 'cancelled' })}}
-                   >Cancel Order</Button>
+                   <Can permission="purchase.cancel">
+                     <Button variant="outline" className="w-full text-red-500"
+                      onClick={() => { if(confirm('Cancel order?')) updateStatusMut.mutate({ id: showViewModal._id, status: 'cancelled' })}}
+                     >Cancel Order</Button>
+                   </Can>
                 )}
                </div>
             </div>

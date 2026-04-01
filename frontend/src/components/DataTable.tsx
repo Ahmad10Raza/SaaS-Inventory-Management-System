@@ -5,6 +5,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import Can from './common/Can';
 
 interface Column<T> {
   key: string;
@@ -30,6 +31,10 @@ interface DataTableProps<T> {
   onDelete?: (item: T) => void;
   onView?: (item: T) => void;
   addLabel?: string;
+  addPermission?: string;
+  editPermission?: string;
+  deletePermission?: string;
+  viewPermission?: string;
 }
 
 export default function DataTable<T extends { _id: string }>({
@@ -49,6 +54,10 @@ export default function DataTable<T extends { _id: string }>({
   onDelete,
   onView,
   addLabel = 'Add New',
+  addPermission,
+  editPermission,
+  deletePermission,
+  viewPermission,
 }: DataTableProps<T>) {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -66,10 +75,12 @@ export default function DataTable<T extends { _id: string }>({
           {description && <p className="text-muted-foreground text-sm mt-1">{description}</p>}
         </div>
         {onAdd && (
-          <Button onClick={onAdd} className="gap-2 shadow-md">
-            <Plus className="w-4 h-4" />
-            {addLabel}
-          </Button>
+          <Can permission={addPermission}>
+            <Button onClick={onAdd} className="gap-2 shadow-md">
+              <Plus className="w-4 h-4" />
+              {addLabel}
+            </Button>
+          </Can>
         )}
       </div>
 
@@ -149,28 +160,34 @@ export default function DataTable<T extends { _id: string }>({
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           {onView && (
-                            <button
-                              onClick={() => onView(item)}
-                              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
+                            <Can permission={viewPermission}>
+                              <button
+                                onClick={() => onView(item)}
+                                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            </Can>
                           )}
                           {onEdit && (
-                            <button
-                              onClick={() => onEdit(item)}
-                              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-blue-600 transition-colors"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
+                            <Can permission={editPermission}>
+                              <button
+                                onClick={() => onEdit(item)}
+                                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-blue-600 transition-colors"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                            </Can>
                           )}
                           {onDelete && (
-                            <button
-                              onClick={() => onDelete(item)}
-                              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <Can permission={deletePermission}>
+                              <button
+                                onClick={() => onDelete(item)}
+                                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </Can>
                           )}
                         </div>
                       </td>

@@ -83,7 +83,12 @@ export default function CustomersPage() {
         isLoading={isLoading} searchPlaceholder="Search customers..."
         onSearch={(q) => { setSearch(q); setPage(1); }} onPageChange={setPage}
         onAdd={() => { reset(); setShowModal(true); }} onEdit={handleEdit}
-        onDelete={(i) => { if (confirm('Deactivate?')) deleteMut.mutate(i._id); }} addLabel="Add Customer" />
+        onDelete={(i) => { if (confirm('Deactivate?')) deleteMut.mutate(i._id); }} addLabel="Add Customer"
+        addPermission="customer.create"
+        editPermission="customer.update"
+        deletePermission="customer.delete"
+        viewPermission="customer.view"
+      />
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">

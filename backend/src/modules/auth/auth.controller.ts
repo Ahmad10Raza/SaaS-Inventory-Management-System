@@ -32,12 +32,18 @@ export class AuthController {
   @Get('profile')
   @UseGuards(AuthGuard('jwt'))
   async getProfile(@Request() req: any) {
-    return this.authService.getProfile(req.user.userId);
+    return this.authService.getProfile(req.user.userId, req.user.tenantDbName, req.user.companyId);
   }
 
   @Post('setup-password')
   @UseGuards(AuthGuard('jwt'))
   async setupPassword(@Request() req: any, @Body() dto: SetupPasswordDto) {
-    return this.authService.setupPassword(req.user.userId, dto);
+    return this.authService.setupPassword(req.user.userId, req.user.tenantDbName, dto);
+  }
+
+  @Post('complete-tour')
+  @UseGuards(AuthGuard('jwt'))
+  async completeTour(@Request() req: any) {
+    return this.authService.completeTour(req.user.userId, req.user.tenantDbName);
   }
 }

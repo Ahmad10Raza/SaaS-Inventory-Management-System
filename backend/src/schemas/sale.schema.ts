@@ -74,6 +74,9 @@ export class Sale {
   deliveryDate: Date;
 
   @Prop()
+  shippedDate: Date;
+
+  @Prop()
   notes: string;
 
   @Prop({ type: Types.ObjectId, ref: 'User' })

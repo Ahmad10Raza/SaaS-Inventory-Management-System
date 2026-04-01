@@ -9,22 +9,22 @@ import type { ReportFilterDto } from './reports.service';
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
-  @Get('sales') @RequirePermissions('reports.read')
+  @Get('sales') @RequirePermissions('reports.view')
   getSales(@Request() req: any, @Query() filters: ReportFilterDto) {
     return this.reportsService.getSalesReport(req.user.companyId, filters);
   }
 
-  @Get('purchases') @RequirePermissions('reports.read')
+  @Get('purchases') @RequirePermissions('reports.view')
   getPurchases(@Request() req: any, @Query() filters: ReportFilterDto) {
     return this.reportsService.getPurchasesReport(req.user.companyId, filters);
   }
 
-  @Get('inventory') @RequirePermissions('reports.read')
+  @Get('inventory') @RequirePermissions('reports.view')
   getInventory(@Request() req: any) {
     return this.reportsService.getInventoryReport(req.user.companyId);
   }
 
-  @Get('stock-logs') @RequirePermissions('reports.read')
+  @Get('stock-logs') @RequirePermissions('reports.view')
   getStockLogs(@Request() req: any, @Query() filters: ReportFilterDto) {
     return this.reportsService.getStockLogsReport(req.user.companyId, filters);
   }

@@ -551,3 +551,299 @@ After MVP launch, add:
 * Mobile app
 * Multi-language support
 * Advanced analytics
+
+You are a SaaS RBAC (Role-Based Access Control) Architecture Agent.
+
+Your job is to design a complete multi-user permission system for a multi-tenant Inventory Management SaaS platform.
+
+Each company will have multiple users with different roles and permissions.
+
+The system must ensure that users only see and perform actions allowed for their role.
+
+# Main Roles
+
+## 1. Super Admin
+
+This role belongs to the SaaS platform owner.
+
+Super Admin can:
+
+* Create companies
+* Delete companies
+* Suspend companies
+* Activate companies
+* View all company data
+* Manage subscriptions
+* Manage billing and payments
+* Manage SaaS-wide settings
+* View all logs
+* View system analytics
+* View storage and database usage
+* Reset company admin passwords
+* Manage feature access by subscription plan
+* Send announcements to all companies
+
+Super Admin cannot:
+
+* Directly modify a company’s inventory records unless explicitly given temporary access
+
+## 2. Company Admin
+
+This role belongs to the owner of a company.
+
+Company Admin can:
+
+* Manage company profile
+* Manage company branding
+* Create users
+* Delete users
+* Assign roles
+* Reset user passwords
+* Manage products
+* Manage customers
+* Manage vendors
+* Manage warehouses
+* Manage inventory
+* Approve purchases
+* Approve sales returns
+* View all reports
+* Manage dashboard widgets
+* Configure notifications
+* Manage company settings
+* View all activity logs
+
+Company Admin cannot:
+
+* Access another company’s data
+* Change SaaS-level subscription rules
+
+## 3. Inventory Manager
+
+Inventory Manager can:
+
+* Add products
+* Update products
+* Delete products
+* Manage stock quantity
+* Add stock
+* Reduce stock
+* Transfer stock between warehouses
+* View warehouse stock
+* View inventory reports
+* Mark damaged stock
+* Mark expired stock
+* Create stock adjustment entries
+* View low stock alerts
+
+Inventory Manager cannot:
+
+* Manage subscriptions
+* Delete company users
+* Access billing
+* Approve financial reports
+
+## 4. Sales Manager
+
+Sales Manager can:
+
+* Create sales orders
+* Edit sales orders
+* Cancel sales orders
+* Generate invoices
+* View customer history
+* Manage customer records
+* Apply discounts
+* View sales reports
+* Process sales returns
+* Track pending payments
+
+Sales Manager cannot:
+
+* Modify purchase orders
+* Access company billing settings
+* Delete warehouses
+
+## 5. Purchase Manager
+
+Purchase Manager can:
+
+* Create purchase orders
+* Edit purchase orders
+* Cancel purchase orders
+* Select vendors
+* View vendor history
+* Approve goods received
+* View purchase reports
+* Track vendor payments
+* Upload purchase invoices
+
+Purchase Manager cannot:
+
+* Delete sales orders
+* Access payroll or billing settings
+
+## 6. Warehouse Manager
+
+Warehouse Manager can:
+
+* View warehouse inventory
+* Transfer stock
+* Approve stock received
+* Approve stock dispatch
+* Mark damaged stock
+* Update warehouse locations
+* View warehouse activity logs
+
+Warehouse Manager cannot:
+
+* Create new users
+* Access financial reports
+* Manage subscriptions
+
+## 7. Accountant
+
+Accountant can:
+
+* View sales invoices
+* View purchase invoices
+* Track payments
+* Manage tax calculations
+* Generate GST reports
+* Generate profit/loss reports
+* View customer dues
+* View vendor dues
+
+Accountant cannot:
+
+* Change stock quantity
+* Delete products
+* Create users
+
+## 8. Staff User
+
+Staff User can:
+
+* View assigned modules
+* Create draft entries
+* Add customer details
+* Add vendor details
+* View products
+* View stock quantity
+
+Staff User cannot:
+
+* Approve purchases
+* Approve sales
+* Delete products
+* Access financial reports
+* Access company settings
+
+## 9. Read Only User
+
+Read Only User can:
+
+* View dashboard
+* View reports
+* View inventory
+* View products
+* View customers
+
+Read Only User cannot:
+
+* Add records
+* Edit records
+* Delete records
+* Approve anything
+
+# Important Permission Categories
+
+The system should use permission-based access in addition to roles.
+
+Example permission groups:
+
+* product.create
+* product.update
+* product.delete
+* product.view
+* inventory.add_stock
+* inventory.reduce_stock
+* inventory.transfer_stock
+* inventory.view
+* customer.create
+* customer.update
+* customer.delete
+* customer.view
+* vendor.create
+* vendor.update
+* vendor.delete
+* vendor.view
+* purchase.create
+* purchase.approve
+* purchase.cancel
+* purchase.view
+* sales.create
+* sales.approve
+* sales.cancel
+* sales.view
+* reports.view
+* reports.export
+* settings.update
+* billing.view
+* subscription.manage
+* user.create
+* user.update
+* user.delete
+* role.assign
+
+# Approval Workflow Cases
+
+## Purchase Approval Flow
+
+1. Staff User creates draft purchase order
+2. Purchase Manager reviews purchase order
+3. Company Admin approves purchase order
+4. Inventory Manager updates stock after goods received
+
+## Sales Approval Flow
+
+1. Sales User creates sales order
+2. Sales Manager reviews order
+3. Company Admin approves discount if needed
+4. Warehouse Manager dispatches stock
+
+## Stock Transfer Flow
+
+1. Inventory Manager creates stock transfer request
+2. Warehouse Manager approves transfer
+3. System updates source warehouse stock
+4. System updates destination warehouse stock
+
+## Damaged Stock Flow
+
+1. Warehouse staff marks damaged stock
+2. Inventory Manager verifies quantity
+3. Company Admin approves stock deduction
+4. System logs activity in stock logs
+
+# Important Security Rules
+
+* Every API must check role and permissions
+* Every action should be logged in activity_logs
+* Sensitive actions should require approval
+* Users should only see allowed menu items
+* Buttons should be hidden if permission is missing
+* Backend should always validate permissions even if frontend hides UI
+* Every action should be tenant-specific
+* Company users cannot access another company database
+
+# Suggested Backend Permission Middleware
+
+```javascript
+if (!user.permissions.includes('inventory.add_stock')) {
+  throw new Error('Access Denied');
+}
+```
+
+# Final Goal
+
+Build a secure, scalable multi-user SaaS inventory system where every role has controlled access and every important action follows a proper approval workflow.
