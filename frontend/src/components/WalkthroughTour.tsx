@@ -5,17 +5,8 @@ import { useAuthStore } from '@/stores/authStore';
 export default function WalkthroughTour() {
   const { hasSeenTour, markTourAsSeen, isAuthenticated } = useAuthStore();
   const [run, setRun] = useState(false);
-  const [hasTriedAutoLogin, setHasTriedAutoLogin] = useState(false);
-
   useEffect(() => {
-    if (!isAuthenticated) {
-      setHasTriedAutoLogin(false);
-      return;
-    }
-    
-    // Skip if already tried auto-login (page reload)
-    if (hasTriedAutoLogin) return;
-    setHasTriedAutoLogin(true);
+    if (!isAuthenticated) return;
     
     // Only show tour for truly new users (never seen tour before)
     if (hasSeenTour === false) {
@@ -23,7 +14,7 @@ export default function WalkthroughTour() {
       const timer = setTimeout(() => setRun(true), 1500);
       return () => clearTimeout(timer);
     }
-  }, [isAuthenticated, hasSeenTour, hasTriedAutoLogin]);
+  }, [isAuthenticated, hasSeenTour]);
 
   if (!run) return null;
 
@@ -60,15 +51,12 @@ export default function WalkthroughTour() {
   };
 
   return (
+    // @ts-ignore
     <Joyride
       onEvent={handleEvent}
-      continuous
-      scrollToFirstStep
-      showProgress
-      showSkipButton
       run={run}
       steps={steps}
-      styles={{
+      styles={({
         options: {
           zIndex: 10000,
           primaryColor: 'hsl(var(--primary))',
@@ -93,7 +81,7 @@ export default function WalkthroughTour() {
         buttonSkip: {
           fontSize: '14px',
         }
-      }}
+      } as any)}
     />
   );
 }
