@@ -20,6 +20,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { EmailModule } from './modules/email/email.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { TransfersModule } from './modules/transfers/transfers.module';
 
 import { Company, CompanySchema } from './schemas/company.schema';
 import { Subscription, SubscriptionSchema } from './schemas/subscription.schema';
@@ -87,6 +88,7 @@ import { TenantResolverMiddleware } from './middleware/tenant-resolver.middlewar
     SettingsModule,
     EmailModule,
     AdminModule,
+    TransfersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

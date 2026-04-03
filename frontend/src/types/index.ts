@@ -81,6 +81,7 @@ export interface Product {
   _id: string;
   companyId: string;
   name: string;
+  brand?: string;
   description?: string;
   sku: string;
   barcode?: string;

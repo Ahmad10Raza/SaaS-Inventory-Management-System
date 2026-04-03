@@ -69,8 +69,12 @@ export default function AdminDashboardPage() {
             <Database className="h-4 w-4 text-purple-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono text-[16px]">STABLE</div>
-            <p className="text-xs text-muted-foreground mt-1 uppercase tracking-widest font-bold opacity-70">db availability: 100%</p>
+            <div className={`text-2xl font-bold font-mono text-[16px] ${(stats?.activeConnections || 0) > 0 ? 'text-green-500' : 'text-amber-500'}`}>
+              {(stats?.activeConnections || 0) > 0 ? 'OPERATIONAL' : 'QUIET'}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1 uppercase tracking-widest font-bold opacity-70">
+              {stats?.activeConnections || 0} ACTIVE DB POOLS
+            </p>
           </CardContent>
         </Card>
       </div>

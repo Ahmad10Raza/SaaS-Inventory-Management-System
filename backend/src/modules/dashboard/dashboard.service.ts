@@ -1,13 +1,16 @@
 import { Injectable, Inject, Scope } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
-import { Request } from 'express';
-import { Model, Connection } from 'mongoose';
+import { Model } from 'mongoose';
 import { Product, ProductDocument, ProductSchema } from '../../schemas/product.schema';
 import { Customer, CustomerDocument, CustomerSchema } from '../../schemas/customer.schema';
 import { Vendor, VendorDocument, VendorSchema } from '../../schemas/vendor.schema';
 import { Sale, SaleDocument, SaleSchema } from '../../schemas/sale.schema';
 import { Purchase, PurchaseDocument, PurchaseSchema } from '../../schemas/purchase.schema';
-import { StockLog, StockLogDocument, StockLogSchema } from '../../schemas/stock-log.schema';
+import { WarehouseStock, WarehouseStockDocument, WarehouseStockSchema } from '../../schemas/warehouse-stock.schema';
+import { StockMovement, StockMovementDocument, StockMovementSchema } from '../../schemas/stock-movement.schema';
+import { ProductVariant, ProductVariantSchema } from '../../schemas/product-variant.schema';
+import { Category, CategorySchema } from '../../schemas/category.schema';
+import { ensureObjectId } from '../../common/utils/tenant.utils';
 
 @Injectable({ scope: Scope.REQUEST })
 export class DashboardService {
@@ -16,10 +19,13 @@ export class DashboardService {
   private vendorModel: Model<VendorDocument>;
   private saleModel: Model<SaleDocument>;
   private purchaseModel: Model<PurchaseDocument>;
-  private stockLogModel: Model<StockLogDocument>;
+  private stockModel: Model<WarehouseStockDocument>;
+  private movementModel: Model<StockMovementDocument>;
+  private variantModel: Model<any>;
+  private categoryModel: Model<any>;
 
   constructor(@Inject(REQUEST) private request: any) {
-    const conn = this.request.tenantConnection;
+    const conn = this.request.tenantConnection as any;
     if (!conn) throw new Error('Tenant connection not found in request');
     
     this.productModel = conn.modelNames().includes(Product.name) ? conn.model<any>(Product.name) as any : conn.model<any>(Product.name, ProductSchema) as any;
@@ -27,13 +33,19 @@ export class DashboardService {
     this.vendorModel = conn.modelNames().includes(Vendor.name) ? conn.model<any>(Vendor.name) as any : conn.model<any>(Vendor.name, VendorSchema) as any;
     this.saleModel = conn.modelNames().includes(Sale.name) ? conn.model<any>(Sale.name) as any : conn.model<any>(Sale.name, SaleSchema) as any;
     this.purchaseModel = conn.modelNames().includes(Purchase.name) ? conn.model<any>(Purchase.name) as any : conn.model<any>(Purchase.name, PurchaseSchema) as any;
-    this.stockLogModel = conn.modelNames().includes(StockLog.name) ? conn.model<any>(StockLog.name) as any : conn.model<any>(StockLog.name, StockLogSchema) as any;
+    this.stockModel = conn.modelNames().includes(WarehouseStock.name) ? conn.model<any>(WarehouseStock.name) as any : conn.model<any>(WarehouseStock.name, WarehouseStockSchema) as any;
+    this.movementModel = conn.modelNames().includes(StockMovement.name) ? conn.model<any>(StockMovement.name) as any : conn.model<any>(StockMovement.name, StockMovementSchema) as any;
+    this.variantModel = conn.modelNames().includes(ProductVariant.name) ? conn.model<any>(ProductVariant.name) as any : conn.model<any>(ProductVariant.name, ProductVariantSchema) as any;
+    this.categoryModel = conn.modelNames().includes(Category.name) ? conn.model<any>(Category.name) as any : conn.model<any>(Category.name, CategorySchema) as any;
   }
 
   async getOverview(companyId: string) {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const cId = ensureObjectId(companyId);
+    const filter = { companyId: { $in: [companyId, cId] } };
 
     const [
       totalProducts,
@@ -47,29 +59,29 @@ export class DashboardService {
       pendingPurchases,
       unpaidSales,
     ] = await Promise.all([
-      this.productModel.countDocuments({ companyId }),
-      this.productModel.countDocuments({ companyId, isActive: true }),
-      this.productModel.countDocuments({
-        companyId, isActive: true,
-        $expr: { $lte: ['$currentStock', '$minStockLevel'] },
+      this.productModel.countDocuments(filter),
+      this.productModel.countDocuments({ ...filter, isActive: true }),
+      this.stockModel.countDocuments({
+        ...filter,
+        $expr: { $lte: ['$totalQuantity', '$reorderLevel'] },
       }),
-      this.customerModel.countDocuments({ companyId, isActive: true }),
-      this.vendorModel.countDocuments({ companyId, isActive: true }),
+      this.customerModel.countDocuments({ ...filter, isActive: true }),
+      this.vendorModel.countDocuments({ ...filter, isActive: true }),
       this.saleModel.aggregate([
-        { $match: { companyId, createdAt: { $gte: monthStart } } },
+        { $match: { ...filter, createdAt: { $gte: monthStart }, status: { $nin: ['cancelled', 'returned'] } } },
         { $group: { _id: null, total: { $sum: '$totalAmount' }, count: { $sum: 1 } } },
       ]),
       this.saleModel.aggregate([
-        { $match: { companyId, createdAt: { $gte: lastMonthStart, $lt: monthStart } } },
+        { $match: { ...filter, createdAt: { $gte: lastMonthStart, $lt: monthStart }, status: { $nin: ['cancelled', 'returned'] } } },
         { $group: { _id: null, total: { $sum: '$totalAmount' }, count: { $sum: 1 } } },
       ]),
       this.purchaseModel.aggregate([
-        { $match: { companyId, createdAt: { $gte: monthStart } } },
+        { $match: { ...filter, createdAt: { $gte: monthStart } } },
         { $group: { _id: null, total: { $sum: '$totalAmount' }, count: { $sum: 1 } } },
       ]),
-      this.purchaseModel.countDocuments({ companyId, status: 'pending' }),
+      this.purchaseModel.countDocuments({ ...filter, status: 'pending' }),
       this.saleModel.aggregate([
-        { $match: { companyId, paymentStatus: { $in: ['unpaid', 'partial'] } } },
+        { $match: { ...filter, paymentStatus: { $in: ['unpaid', 'partial'] } } },
         { $group: { _id: null, total: { $sum: { $subtract: ['$totalAmount', '$paidAmount'] } } } },
       ]),
     ]);
@@ -95,20 +107,33 @@ export class DashboardService {
   async getSalesChart(companyId: string) {
     const now = new Date();
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const cId = ensureObjectId(companyId);
+    const filter = { companyId: { $in: [companyId, cId] } };
 
     const [salesByMonth, purchasesByMonth] = await Promise.all([
       this.saleModel.aggregate([
-        { $match: { companyId, createdAt: { $gte: sixMonthsAgo } } },
+        { $match: { ...filter, createdAt: { $gte: sixMonthsAgo } } },
+        { $unwind: '$items' },
+        {
+          $lookup: {
+            from: 'product_variants',
+            localField: 'items.variantId',
+            foreignField: '_id',
+            as: 'variant'
+          }
+        },
+        { $unwind: { path: '$variant', preserveNullAndEmptyArrays: true } },
         {
           $group: {
             _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
-            total: { $sum: '$totalAmount' },
+            total: { $sum: { $ifNull: ['$items.totalPrice', 0] } },
+            cost: { $sum: { $multiply: [{ $ifNull: ['$items.quantity', 0] }, { $ifNull: ['$variant.costPrice', '$variant.price', 0] }] } }
           },
         },
         { $sort: { _id: 1 } },
       ]),
       this.purchaseModel.aggregate([
-        { $match: { companyId, createdAt: { $gte: sixMonthsAgo } } },
+        { $match: { ...filter, createdAt: { $gte: sixMonthsAgo } } },
         {
           $group: {
             _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
@@ -119,7 +144,6 @@ export class DashboardService {
       ]),
     ]);
 
-    // Generate all months
     const months: string[] = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -132,17 +156,24 @@ export class DashboardService {
       const salesEntry = salesByMonth.find((s: any) => s._id === month);
       const purchaseEntry = purchasesByMonth.find((p: any) => p._id === month);
       const monthIdx = parseInt(month.split('-')[1]) - 1;
+      
+      const revenue = salesEntry?.total || 0;
+      const cost = salesEntry?.cost || 0;
+      
       return {
         month: monthNames[monthIdx],
-        sales: salesEntry?.total || 0,
+        sales: revenue,
+        profit: Math.max(0, revenue - cost),
         purchases: purchaseEntry?.total || 0,
       };
     });
   }
 
   async getTopProducts(companyId: string) {
+    const cId = ensureObjectId(companyId);
+    const filter = { companyId: { $in: [companyId, cId] } };
     return this.saleModel.aggregate([
-      { $match: { companyId } },
+      { $match: filter },
       { $unwind: '$items' },
       {
         $group: {
@@ -158,13 +189,15 @@ export class DashboardService {
   }
 
   async getRecentActivity(companyId: string) {
+    const cId = ensureObjectId(companyId);
+    const filter = { companyId: { $in: [companyId, cId] } };
     const [recentSales, recentPurchases, recentStockLogs] = await Promise.all([
-      this.saleModel.find({ companyId }).sort({ createdAt: -1 }).limit(5)
+      this.saleModel.find(filter).sort({ createdAt: -1 }).limit(5)
         .populate('customerId', 'name').lean(),
-      this.purchaseModel.find({ companyId }).sort({ createdAt: -1 }).limit(5)
+      this.purchaseModel.find(filter).sort({ createdAt: -1 }).limit(5)
         .populate('vendorId', 'name').lean(),
-      this.stockLogModel.find({ companyId }).sort({ createdAt: -1 }).limit(5)
-        .populate('productId', 'name').lean(),
+      this.movementModel.find(filter).sort({ createdAt: -1 }).limit(5)
+        .populate({ path: 'variantId', select: 'sku' }).lean(),
     ]);
 
     const activities = [
@@ -174,13 +207,13 @@ export class DashboardService {
         time: s.createdAt,
       })),
       ...recentPurchases.map((p: any) => ({
-        type: 'purchase', action: `PO ${p.purchaseOrderNumber}`,
+        type: 'purchase', action: `PO ${p.purchaseNumber}`,
         detail: `₹${p.totalAmount?.toLocaleString()} from ${p.vendorId?.name || 'N/A'}`,
         time: p.createdAt,
       })),
       ...recentStockLogs.map((l: any) => ({
         type: l.type, action: `Stock ${l.type?.replace('_', ' ')}`,
-        detail: `${l.quantity} units of ${l.productId?.name || 'N/A'}`,
+        detail: `${l.quantity} units of SKU: ${l.variantId?.sku || 'N/A'}`,
         time: l.createdAt,
       })),
     ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 10);
@@ -189,26 +222,96 @@ export class DashboardService {
   }
 
   async getStockDistribution(companyId: string) {
-    const products = await this.productModel.find({ companyId, isActive: true }).lean();
+    const cId = ensureObjectId(companyId);
+    const filter = { companyId: { $in: [companyId, cId] } };
+    const stocks = await this.stockModel.find(filter).lean();
     let inStock = 0, lowStock = 0, outOfStock = 0, overstocked = 0;
 
-    for (const p of products) {
-      const stock = (p as any).currentStock || 0;
-      const min = (p as any).minStockLevel || 10;
-      const reorder = (p as any).reorderThreshold || min * 3;
-
-      if (stock === 0) outOfStock++;
-      else if (stock <= min) lowStock++;
-      else if (stock > reorder) overstocked++;
+    for (const s of stocks) {
+      if (s.totalQuantity === 0) outOfStock++;
+      else if (s.totalQuantity <= s.reorderLevel) lowStock++;
+      else if (s.totalQuantity > (s.reorderLevel * 3)) overstocked++;
       else inStock++;
     }
 
-    const total = products.length || 1;
+    const total = stocks.length || 1;
     return [
       { name: 'In Stock', value: Math.round((inStock / total) * 100), color: '#22c55e' },
       { name: 'Low Stock', value: Math.round((lowStock / total) * 100), color: '#f59e0b' },
       { name: 'Out of Stock', value: Math.round((outOfStock / total) * 100), color: '#ef4444' },
       { name: 'Overstocked', value: Math.round((overstocked / total) * 100), color: '#6366f1' },
     ];
+  }
+
+  async getBusinessMetrics(companyId: string) {
+    const cId = ensureObjectId(companyId);
+    const filter = { companyId: { $in: [companyId, cId] } };
+
+    const [categorySales, topCustomers] = await Promise.all([
+      // Sales by Category
+      this.saleModel.aggregate([
+        { $match: filter },
+        { $unwind: '$items' },
+        {
+          $lookup: {
+            from: 'product_variants',
+            localField: 'items.variantId',
+            foreignField: '_id',
+            as: 'variant'
+          }
+        },
+        { $unwind: '$variant' },
+        {
+          $lookup: {
+            from: 'products',
+            localField: 'variant.productId',
+            foreignField: '_id',
+            as: 'product'
+          }
+        },
+        { $unwind: '$product' },
+        {
+          $lookup: {
+            from: 'categories',
+            localField: 'product.categoryId',
+            foreignField: '_id',
+            as: 'category'
+          }
+        },
+        { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+        {
+          $group: {
+            _id: '$category.name',
+            value: { $sum: '$items.totalPrice' }
+          }
+        },
+        { $project: { name: { $ifNull: ['$_id', 'Uncategorized'] }, value: 1 } },
+        { $sort: { value: -1 } }
+      ]),
+      // Top Customers by Revenue
+      this.saleModel.aggregate([
+        { $match: filter },
+        {
+          $lookup: {
+            from: 'customers',
+            localField: 'customerId',
+            foreignField: '_id',
+            as: 'customer'
+          }
+        },
+        { $unwind: '$customer' },
+        {
+          $group: {
+            _id: '$customer.name',
+            revenue: { $sum: '$totalAmount' },
+            orders: { $sum: 1 }
+          }
+        },
+        { $sort: { revenue: -1 } },
+        { $limit: 5 }
+      ])
+    ]);
+
+    return { categorySales, topCustomers };
   }
 }

@@ -13,6 +13,7 @@ import WarehousesPage from '@/pages/warehouses/WarehousesPage';
 import InventoryPage from '@/pages/inventory/InventoryPage';
 import PurchasesPage from '@/pages/purchases/PurchasesPage';
 import SalesPage from '@/pages/sales/SalesPage';
+import TransfersPage from '@/pages/transfers/TransfersPage';
 import ReportsPage from '@/pages/reports/ReportsPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
 import AdminDashboardPage from '@/pages/admin/AdminDashboardPage';
@@ -59,6 +60,7 @@ function App() {
           <Route path="/warehouses" element={<ProtectedPage requiredPermission="warehouse.view"><WarehousesPage /></ProtectedPage>} />
           <Route path="/purchases" element={<ProtectedPage requiredPermission="purchase.view"><PurchasesPage /></ProtectedPage>} />
           <Route path="/sales" element={<ProtectedPage requiredPermission="sales.view"><SalesPage /></ProtectedPage>} />
+          <Route path="/transfers" element={<ProtectedPage requiredPermission="warehouse.view"><TransfersPage /></ProtectedPage>} />
           <Route path="/reports" element={<ProtectedPage requiredPermission="reports.view"><ReportsPage /></ProtectedPage>} />
           <Route path="/settings" element={<ProtectedPage requiredPermission="settings.read"><SettingsPage /></ProtectedPage>} />
           

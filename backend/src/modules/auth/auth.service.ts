@@ -80,8 +80,53 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const email = loginDto.email.toLowerCase();
     
-    // Step 1: Optimized Lookup — Find the company by ownerEmail in Master DB
-    let company = await this.companyModel.findOne({ ownerEmail: email, isActive: true }).lean();
+    // ── Step 0: Super Admin Fast-Path (env-based, no tenant DB needed) ──
+    const superAdminEmail = (this.configService.get<string>('SUPER_ADMIN_EMAIL') || 'admin@saas.com').toLowerCase();
+    const superAdminPassword = this.configService.get<string>('SUPER_ADMIN_PASSWORD') || 'SuperAdmin2026!';
+
+    if (email === superAdminEmail) {
+      this.logger.log(`[Auth] Super Admin login attempt: ${email}`);
+
+      // Validate password directly against .env value (plain-text compare)
+      if (loginDto.password !== superAdminPassword) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+
+      // Generate a platform-level JWT (no tenant DB required)
+      const tokens = await this.generateTokens({
+        userId: 'super_admin_root',
+        email: superAdminEmail,
+        companyId: 'platform',
+        tenantDbName: 'saas_master',
+        role: 'super_admin',
+        isTemporaryPassword: false,
+      });
+
+      this.logger.log(`[Auth] Super Admin authenticated successfully.`);
+
+      return {
+        ...tokens,
+        user: {
+          _id: 'super_admin_root',
+          firstName: 'Super',
+          lastName: 'Admin',
+          email: superAdminEmail,
+          role: 'super_admin',
+          isActive: true,
+          permissions: ['*'],
+        },
+        company: {
+          _id: 'platform',
+          name: 'SaaS Platform',
+          slug: 'saas-platform',
+          isActive: true,
+          subscriptionPlan: 'premium',
+        },
+      };
+    }
+
+    // ── Step 1: Regular tenant login — Find company by ownerEmail ──
+    const company = await this.companyModel.findOne({ ownerEmail: email, isActive: true }).lean();
 
     let foundUser: any = null;
     let foundCompany: any = null;
@@ -97,10 +142,9 @@ export class AuthService {
       }
     }
 
-    // Step 2: Legacy Fallback — If not found via ownerEmail index, do the expensive search
-    // (This supports users seeded before the architecture upgrade)
+    // Step 2: Legacy Fallback — search all tenant DBs
     if (!foundUser) {
-      this.logger.warn(`Email ${email} not found in user index. Falling back to global search...`);
+      this.logger.warn(`Email ${email} not found via ownerEmail. Falling back to global search...`);
       const companies = await this.companyModel.find({ isActive: true }).lean();
 
       for (const comp of companies) {
@@ -210,6 +254,30 @@ export class AuthService {
   // GET PROFILE
   // ─────────────────────────────────────────────────────
   async getProfile(userId: string, tenantDbName: string, companyId: string) {
+    // Super admin synthetic profile — no tenant DB lookup needed
+    if (userId === 'super_admin_root' && companyId === 'platform') {
+      const superAdminEmail = (this.configService.get<string>('SUPER_ADMIN_EMAIL') || 'admin@saas.com').toLowerCase();
+      return {
+        user: {
+          _id: 'super_admin_root',
+          firstName: 'Super',
+          lastName: 'Admin',
+          email: superAdminEmail,
+          role: 'super_admin',
+          isActive: true,
+          permissions: ['*'],
+          hasSeenTour: true,
+        },
+        company: {
+          _id: 'platform',
+          name: 'SaaS Platform',
+          slug: 'saas-platform',
+          isActive: true,
+          subscriptionPlan: 'premium',
+        },
+      };
+    }
+
     const conn = await this.tenantConnectionService.getConnection(tenantDbName);
     const UserModel = conn.model('User');
 

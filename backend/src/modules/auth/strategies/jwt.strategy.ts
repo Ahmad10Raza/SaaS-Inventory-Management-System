@@ -14,6 +14,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
+    // Super admin uses synthetic IDs — allow them through
+    if (payload.role === 'super_admin' && payload.sub === 'super_admin_root') {
+      return {
+        userId: payload.sub,
+        email: payload.email,
+        companyId: payload.companyId,
+        tenantDbName: payload.tenantDbName,
+        role: payload.role,
+        isTemporaryPassword: false,
+      };
+    }
+
     if (!payload.sub || !payload.companyId || !payload.tenantDbName) {
       throw new UnauthorizedException('Invalid token structure');
     }

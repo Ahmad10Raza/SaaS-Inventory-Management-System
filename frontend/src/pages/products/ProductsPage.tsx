@@ -13,14 +13,17 @@ import api from '@/services/api';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Name is required'),
+  brand: z.string().optional(),
   sku: z.string().min(1, 'SKU is required'),
+  barcode: z.string().optional(),
   price: z.coerce.number().min(0, 'Price must be positive'),
   costPrice: z.coerce.number().min(0).optional(),
+  minSellingPrice: z.coerce.number().min(0).optional(),
   unit: z.string().optional(),
   taxPercentage: z.coerce.number().min(0).max(100).optional(),
-  minStockLevel: z.coerce.number().min(0).optional(),
-  reorderThreshold: z.coerce.number().min(0).optional(),
   description: z.string().optional(),
+  categoryId: z.string().optional(),
+  dynamicAttributes: z.record(z.any()).optional(),
 });
 
 type ProductFormData = z.infer<typeof productSchema>;
@@ -37,8 +40,21 @@ export default function ProductsPage() {
     queryFn: () => api.get('/products', { params: { page, limit: 20, search } }).then(r => r.data),
   });
 
-  const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<ProductFormData>({
+  const { data: categories } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => api.get('/categories').then(r => r.data),
+  });
+
+  const { register, handleSubmit, reset, formState: { errors }, setValue, watch } = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
+  });
+
+  const selectedCategoryId = watch('categoryId');
+
+  const { data: attributes, isLoading: attributesLoading } = useQuery({
+    queryKey: ['category-attributes', selectedCategoryId],
+    queryFn: () => api.get(`/categories/${selectedCategoryId}/attributes`).then(r => r.data),
+    enabled: !!selectedCategoryId,
   });
 
   const createMutation = useMutation({
@@ -62,11 +78,17 @@ export default function ProductsPage() {
 
   const handleEdit = (item: any) => {
     setEditingId(item._id);
-    Object.keys(item).forEach(key => {
-      if (['name', 'sku', 'price', 'costPrice', 'unit', 'taxPercentage', 'minStockLevel', 'reorderThreshold', 'description'].includes(key)) {
-        setValue(key as any, item[key]);
-      }
-    });
+    const fields = ['name', 'brand', 'description', 'categoryId', 'taxPercentage', 'minSellingPrice'];
+    fields.forEach(key => setValue(key as any, item[key]));
+    
+    // For editing we assume the first variant is the default one for now
+    if (item.variants?.[0]) {
+      setValue('sku', item.variants[0].sku);
+      setValue('barcode', item.variants[0].barcode);
+      setValue('price', item.variants[0].price);
+      setValue('costPrice', item.variants[0].costPrice);
+      setValue('unit', item.variants[0].unit);
+    }
     setShowModal(true);
   };
 
@@ -79,25 +101,48 @@ export default function ProductsPage() {
   };
 
   const columns = [
-    { key: 'name', label: 'Product', render: (item: any) => (
-      <div>
-        <p className="font-medium">{item.name}</p>
-        <p className="text-xs text-muted-foreground">{item.sku}</p>
-      </div>
-    )},
-    { key: 'price', label: 'Price', render: (item: any) => (
-      <span className="font-medium">₹{item.price?.toLocaleString()}</span>
-    )},
-    { key: 'currentStock', label: 'Stock', render: (item: any) => (
+    { key: 'name', label: 'Product', render: (item: any) => {
+      const dv = item.variants?.[0];
+      return (
+        <div>
+          <p className="font-medium">{item.name}</p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{dv?.sku || 'N/A'}</span>
+            {item.brand && (
+              <>
+                <span>•</span>
+                <span className="text-primary/70">{item.brand}</span>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }},
+    { key: 'price', label: 'Price', render: (item: any) => {
+      const dv = item.variants?.[0];
+      return <span className="font-medium">₹{(dv?.price || item.minSellingPrice || 0).toLocaleString()}</span>;
+    }},
+    { key: 'costPrice', label: 'Cost', render: (item: any) => {
+      const dv = item.variants?.[0];
+      return <span className="text-muted-foreground">₹{(dv?.costPrice || 0).toLocaleString()}</span>;
+    }},
+    { key: 'totalStock', label: 'Total Stock', render: (item: any) => {
+      const dv = item.variants?.[0];
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+          {item.totalStock || 0} {dv?.unit || 'pcs'}
+        </span>
+      );
+    }},
+    { key: 'availableStock', label: 'Available', render: (item: any) => (
       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-        item.currentStock <= item.minStockLevel
+        (item.availableStock || 0) <= 5
           ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
           : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
       }`}>
-        {item.currentStock} {item.unit || 'pcs'}
+        {item.availableStock || 0}
       </span>
     )},
-    { key: 'unit', label: 'Unit' },
     { key: 'taxPercentage', label: 'Tax %', render: (item: any) => `${item.taxPercentage || 0}%` },
   ];
 
@@ -140,12 +185,79 @@ export default function ProductsPage() {
                   {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label>SKU *</Label>
-                  <Input {...register('sku')} placeholder="SKU-001" />
-                  {errors.sku && <p className="text-xs text-destructive">{errors.sku.message}</p>}
+                  <Label>Brand</Label>
+                  <Input {...register('brand')} placeholder="e.g. Apple, Logitech" />
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>SKU *</Label>
+                  <Input {...register('sku')} placeholder="SKU-1001" />
+                  {errors.sku && <p className="text-xs text-destructive">{errors.sku.message}</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label>Category</Label>
+                  <select
+                    {...register('categoryId')}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {!categories || categories.length === 0 ? (
+                      <option value="" disabled>No categories found - Seed error?</option>
+                    ) : (
+                      <>
+                        <option value="">Select Category</option>
+                        {categories.map((c: any) => (
+                          <option key={c._id} value={c._id}>{c.name}</option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                  {!categories && <p className="text-[10px] text-muted-foreground animate-pulse">Fetching categories...</p>}
+                </div>
+              </div>
+
+              {/* Dynamic Attributes Section */}
+              {selectedCategoryId && attributesLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin"/> Loading fields...</div>
+              ) : attributes && attributes.length > 0 ? (
+                <div className="border border-primary/20 bg-primary/5 rounded-lg p-4 space-y-4">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">Category Attributes</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {attributes.map((attr: any) => (
+                      <div key={attr._id} className="space-y-2">
+                        <Label>{attr.attributeName} {attr.required && '*'}</Label>
+                        {attr.attributeType === 'dropdown' ? (
+                          <select
+                            {...register(`dynamicAttributes.${attr.attributeName}` as any)}
+                            required={attr.required}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          >
+                            <option value="">Select {attr.attributeName}</option>
+                            {attr.dropdownOptions.map((opt: string) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        ) : attr.attributeType === 'boolean' ? (
+                           <label className="flex items-center gap-2 text-sm mt-2">
+                             <input type="checkbox" {...register(`dynamicAttributes.${attr.attributeName}` as any)} />
+                             Yes / Active
+                           </label>
+                        ) : (
+                          <Input
+                            type={attr.attributeType === 'number' ? 'number' : 'text'}
+                            {...register(`dynamicAttributes.${attr.attributeName}` as any)}
+                            required={attr.required}
+                            placeholder={attr.defaultValue || ''}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Selling Price *</Label>
                   <Input type="number" step="0.01" {...register('price')} placeholder="0.00" />
@@ -155,8 +267,12 @@ export default function ProductsPage() {
                   <Label>Cost Price</Label>
                   <Input type="number" step="0.01" {...register('costPrice')} placeholder="0.00" />
                 </div>
+                <div className="space-y-2">
+                  <Label>Min Selling Price</Label>
+                  <Input type="number" step="0.01" {...register('minSellingPrice')} placeholder="0.00" />
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Unit</Label>
                   <Input {...register('unit')} placeholder="piece" />
@@ -164,10 +280,6 @@ export default function ProductsPage() {
                 <div className="space-y-2">
                   <Label>Tax %</Label>
                   <Input type="number" {...register('taxPercentage')} placeholder="18" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Min Stock</Label>
-                  <Input type="number" {...register('minStockLevel')} placeholder="10" />
                 </div>
               </div>
               <div className="space-y-2">

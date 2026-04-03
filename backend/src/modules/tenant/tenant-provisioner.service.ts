@@ -6,6 +6,8 @@ import * as bcrypt from 'bcrypt';
 import { Company, CompanyDocument } from '../../schemas/company.schema';
 import { TenantConnectionService } from '../../database/tenant-connection.service';
 import { getIndustryDefaults, mergeWithPreferences } from '../../config/industry-config';
+import { MasterIndustry, MasterIndustryDocument } from '../../schemas/master-industry.schema';
+import { MasterCategory, MasterCategoryDocument } from '../../schemas/master-category.schema';
 
 export interface ProvisionResult {
   company: any;
@@ -45,6 +47,8 @@ export class TenantProvisionerService {
 
   constructor(
     @InjectModel(Company.name) private readonly companyModel: Model<CompanyDocument>,
+    @InjectModel(MasterIndustry.name) private readonly masterIndustryModel: Model<MasterIndustryDocument>,
+    @InjectModel(MasterCategory.name) private readonly masterCategoryModel: Model<MasterCategoryDocument>,
     private readonly tenantConnectionService: TenantConnectionService,
   ) {}
 
@@ -192,14 +196,85 @@ export class TenantProvisionerService {
     ].map(s => ({ ...s, companyId: company._id })));
 
     // ── 4–11. Seed all 7+1 industry-aware settings ───────
-    await conn.model('IndustrySettings').create({ companyId: company._id, industryType: params.industry, ...config.industry });
-    await conn.model('InventorySettings').create({ companyId: company._id, ...config.inventory });
-    await conn.model('ProductSettings').create({ companyId: company._id, ...config.product });
-    await conn.model('TaxSettings').create({ companyId: company._id, ...config.tax });
-    await conn.model('WarehouseConfig').create({ companyId: company._id, ...config.warehouse });
-    await conn.model('ApprovalSettings').create({ companyId: company._id, ...config.approval });
-    await conn.model('NotificationConfig').create({ companyId: company._id, ...config.notification });
-    await conn.model('BrandingSettings').create({ companyId: company._id, ...config.branding });
+    // Helper to get or define model safely
+    const getModel = (name: string, schema: any) => 
+      conn.modelNames().includes(name) ? conn.model(name) : conn.model(name, schema);
+
+    await getModel('IndustrySettings', require('../../schemas/industry-settings.schema').IndustrySettingsSchema).create({ companyId: company._id, industryType: params.industry, ...config.industry });
+    await getModel('InventorySettings', require('../../schemas/inventory-settings.schema').InventorySettingsSchema).create({ companyId: company._id, ...config.inventory });
+    await getModel('ProductSettings', require('../../schemas/product-settings.schema').ProductSettingsSchema).create({ companyId: company._id, ...config.product });
+    await getModel('TaxSettings', require('../../schemas/tax-settings.schema').TaxSettingsSchema).create({ companyId: company._id, ...config.tax });
+    await getModel('WarehouseConfig', require('../../schemas/warehouse-config.schema').WarehouseConfigSchema).create({ companyId: company._id, ...config.warehouse });
+    await getModel('ApprovalSettings', require('../../schemas/approval-settings.schema').ApprovalSettingsSchema).create({ companyId: company._id, ...config.approval });
+    await getModel('NotificationConfig', require('../../schemas/notification-config.schema').NotificationConfigSchema).create({ companyId: company._id, ...config.notification });
+    await getModel('BrandingSettings', require('../../schemas/branding-settings.schema').BrandingSettingsSchema).create({ companyId: company._id, ...config.branding });
+
+    // ── 12. Dynamic Category Seeding ─────────────────────
+    this.logger.log(`Syncing Master Categories for industry: ${params.industry}`);
+
+    // Register active industry for this company
+    await conn.model('CompanyIndustry').create({
+      companyId: company._id,
+      industryId: params.industry,
+      isActive: true,
+    });
+
+    const allMasterCats = await this.masterCategoryModel.find({ status: 'active' }).select('industryId').exec();
+    const uniqueIndustries = [...new Set(allMasterCats.map(c => c.industryId))];
+    this.logger.log(`Debugging: Available industries in Master Catalog: ${uniqueIndustries.join(', ')}`);
+    
+    const masterCategories = await this.masterCategoryModel.find({ industryId: params.industry, status: 'active' }).exec();
+    this.logger.log(`Found ${masterCategories.length} master categories for industry: "${params.industry}"`);
+    if (masterCategories.length > 0) {
+      const CategoryModel = getModel('Category', require('../../schemas/category.schema').CategorySchema);
+      const TemplateModel = getModel('CategoryTemplate', require('../../schemas/category-template.schema').CategoryTemplateSchema);
+      const AttributeModel = getModel('CategoryAttribute', require('../../schemas/category-attribute.schema').CategoryAttributeSchema);
+
+      for (const mc of masterCategories) {
+        // Create Tenant Category mapping
+        const tCat = await CategoryModel.create({
+          companyId: company._id,
+          name: mc.categoryName,
+          description: mc.description,
+          masterCategoryId: mc.categoryId,
+          isCustomCategory: false,
+          isActive: true,
+        });
+
+        // Copy template settings
+        await TemplateModel.create({
+          companyId: company._id,
+          categoryId: tCat._id,
+          templateName: `${mc.categoryName} Base`,
+          enabledModules: [],
+          defaultFilters: [],
+          defaultReports: [],
+        });
+
+        // Seed UI Fields based on category
+        if (mc.categoryId === 'cat_mobile' || mc.categoryId === 'cat_laptop') {
+          await AttributeModel.insertMany([
+            { companyId: company._id, categoryId: tCat._id, attributeName: 'Screen Size', attributeType: 'text', required: true, displayOrder: 1 },
+            { companyId: company._id, categoryId: tCat._id, attributeName: 'RAM', attributeType: 'dropdown', dropdownOptions: ['4GB', '8GB', '16GB', '32GB'], required: true, displayOrder: 2 },
+            { companyId: company._id, categoryId: tCat._id, attributeName: 'Storage', attributeType: 'dropdown', dropdownOptions: ['64GB', '128GB', '256GB', '512GB', '1TB'], required: true, displayOrder: 3 },
+            { companyId: company._id, categoryId: tCat._id, attributeName: 'Has Warranty', attributeType: 'boolean', required: false, displayOrder: 4 },
+          ]);
+        }
+        if (mc.categoryId === 'cat_syrup' || mc.categoryId === 'cat_tablet') {
+          await AttributeModel.insertMany([
+            { companyId: company._id, categoryId: tCat._id, attributeName: 'Dosage Form', attributeType: 'text', required: true, displayOrder: 1 },
+            { companyId: company._id, categoryId: tCat._id, attributeName: 'Active Ingredient', attributeType: 'text', required: true, displayOrder: 2 },
+            { companyId: company._id, categoryId: tCat._id, attributeName: 'Requires Prescription', attributeType: 'boolean', required: true, displayOrder: 3 },
+          ]);
+        }
+        if (mc.categoryId === 'cat_tshirt' || mc.categoryId === 'cat_jeans') {
+          await AttributeModel.insertMany([
+            { companyId: company._id, categoryId: tCat._id, attributeName: 'Material', attributeType: 'dropdown', dropdownOptions: ['Cotton', 'Polyester', 'Denim', 'Wool'], required: true, displayOrder: 1 },
+            { companyId: company._id, categoryId: tCat._id, attributeName: 'Gender', attributeType: 'dropdown', dropdownOptions: ['Men', 'Women', 'Unisex'], required: true, displayOrder: 2 },
+          ]);
+        }
+      }
+    }
 
     this.logger.log(`✅ Seed complete for: ${company.databaseName} (${config.industry.enabledModules.length} modules)`);
   }

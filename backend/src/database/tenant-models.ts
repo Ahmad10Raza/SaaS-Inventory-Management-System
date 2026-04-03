@@ -7,8 +7,11 @@ import { Category, CategorySchema } from '../schemas/category.schema';
 import { Customer, CustomerSchema } from '../schemas/customer.schema';
 import { Vendor, VendorSchema } from '../schemas/vendor.schema';
 import { Warehouse, WarehouseSchema } from '../schemas/warehouse.schema';
-import { Inventory, InventorySchema } from '../schemas/inventory.schema';
-import { StockLog, StockLogSchema } from '../schemas/stock-log.schema';
+import { WarehouseStock, WarehouseStockSchema } from '../schemas/warehouse-stock.schema';
+import { ProductVariant, ProductVariantSchema } from '../schemas/product-variant.schema';
+import { StockMovement, StockMovementSchema } from '../schemas/stock-movement.schema';
+import { WarehouseTransfer, WarehouseTransferSchema } from '../schemas/warehouse-transfer.schema';
+import { PriceHistory, PriceHistorySchema } from '../schemas/price-history.schema';
 import { Purchase, PurchaseSchema } from '../schemas/purchase.schema';
 import { Sale, SaleSchema } from '../schemas/sale.schema';
 import { Invoice, InvoiceSchema } from '../schemas/invoice.schema';
@@ -24,6 +27,12 @@ import { ApprovalSettings, ApprovalSettingsSchema } from '../schemas/approval-se
 import { NotificationConfig, NotificationConfigSchema } from '../schemas/notification-config.schema';
 import { BrandingSettings, BrandingSettingsSchema } from '../schemas/branding-settings.schema';
 
+// ── Dynamic Category Architecture schemas ──────────────
+import { CompanyIndustry, CompanyIndustrySchema } from '../schemas/company-industry.schema';
+import { CustomCategory, CustomCategorySchema } from '../schemas/custom-category.schema';
+import { CategoryTemplate, CategoryTemplateSchema } from '../schemas/category-template.schema';
+import { CategoryAttribute, CategoryAttributeSchema } from '../schemas/category-attribute.schema';
+
 export const TENANT_MODELS = [
   { name: User.name, schema: UserSchema },
   { name: Role.name, schema: RoleSchema },
@@ -34,8 +43,11 @@ export const TENANT_MODELS = [
   { name: Customer.name, schema: CustomerSchema },
   { name: Vendor.name, schema: VendorSchema },
   { name: Warehouse.name, schema: WarehouseSchema },
-  { name: Inventory.name, schema: InventorySchema },
-  { name: StockLog.name, schema: StockLogSchema },
+  { name: WarehouseStock.name, schema: WarehouseStockSchema },
+  { name: ProductVariant.name, schema: ProductVariantSchema },
+  { name: StockMovement.name, schema: StockMovementSchema },
+  { name: WarehouseTransfer.name, schema: WarehouseTransferSchema },
+  { name: PriceHistory.name, schema: PriceHistorySchema },
   { name: Purchase.name, schema: PurchaseSchema },
   { name: Sale.name, schema: SaleSchema },
   { name: Invoice.name, schema: InvoiceSchema },
@@ -50,5 +62,10 @@ export const TENANT_MODELS = [
   { name: ApprovalSettings.name, schema: ApprovalSettingsSchema },
   { name: NotificationConfig.name, schema: NotificationConfigSchema },
   { name: BrandingSettings.name, schema: BrandingSettingsSchema },
+  // ── Dynamic Categories Architecture ──────────────────
+  { name: CompanyIndustry.name, schema: CompanyIndustrySchema },
+  { name: CustomCategory.name, schema: CustomCategorySchema },
+  { name: CategoryTemplate.name, schema: CategoryTemplateSchema },
+  { name: CategoryAttribute.name, schema: CategoryAttributeSchema },
 ];
 

@@ -42,6 +42,7 @@ const navigation = [
   { name: 'Warehouses', href: '/warehouses', icon: Warehouse, requiredPermission: 'warehouse.view' },
   { name: 'Purchases', href: '/purchases', icon: ShoppingCart, requiredPermission: 'purchase.view' },
   { name: 'Sales', href: '/sales', icon: Receipt, requiredPermission: 'sales.view' },
+  { name: 'Transfers', href: '/transfers', icon: Truck, requiredPermission: 'warehouse.view' },
   { name: 'Reports', href: '/reports', icon: FileBarChart, requiredPermission: 'reports.view' },
   { name: 'Settings', href: '/settings', icon: Settings, requiredPermission: 'settings.view' },
 ];

@@ -44,8 +44,8 @@ type RegisterFormData = z.infer<typeof registerSchema>;
 
 // ─── Industry Options ────────────────────────────────────
 const industries = [
-  { value: 'electronics_store', label: '📱 Electronics Store' },
-  { value: 'clothing_store', label: '👗 Clothing Store' },
+  { value: 'electronics', label: '📱 Electronics Store' },
+  { value: 'clothing', label: '👗 Clothing Store' },
   { value: 'pharmacy', label: '💊 Pharmacy' },
   { value: 'grocery_store', label: '🛒 Grocery Store' },
   { value: 'iron_factory', label: '🏭 Iron Factory' },

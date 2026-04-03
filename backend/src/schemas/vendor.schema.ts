@@ -44,6 +44,9 @@ export class Vendor {
   @Prop()
   notes: string;
 
+  @Prop({ default: 0 })
+  outstandingAmount: number;
+
   @Prop({ default: true })
   isActive: boolean;
 }

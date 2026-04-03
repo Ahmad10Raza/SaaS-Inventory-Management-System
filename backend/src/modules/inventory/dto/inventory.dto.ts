@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 
 export class StockInDto {
   @IsNotEmpty() @IsString() productId: string;
+  @IsOptional() @IsString() variantId?: string;
   @IsNotEmpty() @IsString() warehouseId: string;
   @IsNotEmpty() @Type(() => Number) @IsNumber() quantity: number;
   @IsOptional() @IsString() batchNumber?: string;
@@ -12,6 +13,7 @@ export class StockInDto {
 
 export class StockOutDto {
   @IsNotEmpty() @IsString() productId: string;
+  @IsOptional() @IsString() variantId?: string;
   @IsNotEmpty() @IsString() warehouseId: string;
   @IsNotEmpty() @Type(() => Number) @IsNumber() quantity: number;
   @IsOptional() @IsString() reference?: string;
@@ -20,6 +22,7 @@ export class StockOutDto {
 
 export class StockAdjustDto {
   @IsNotEmpty() @IsString() productId: string;
+  @IsOptional() @IsString() variantId?: string;
   @IsNotEmpty() @IsString() warehouseId: string;
   @IsNotEmpty() @Type(() => Number) @IsNumber() newQuantity: number;
   @IsOptional() @IsString() reason?: string;
@@ -27,6 +30,7 @@ export class StockAdjustDto {
 
 export class StockTransferDto {
   @IsNotEmpty() @IsString() productId: string;
+  @IsOptional() @IsString() variantId?: string;
   @IsNotEmpty() @IsString() fromWarehouseId: string;
   @IsNotEmpty() @IsString() toWarehouseId: string;
   @IsNotEmpty() @Type(() => Number) @IsNumber() quantity: number;

@@ -23,4 +23,7 @@ export class CategoriesController {
 
   @Delete(':id') @RequirePermissions('categories.delete')
   remove(@Request() req: any, @Param('id') id: string) { return this.categoriesService.remove(req.user.companyId, id); }
+
+  @Get(':id/attributes') @RequirePermissions('categories.read')
+  getAttributes(@Request() req: any, @Param('id') id: string) { return this.categoriesService.getAttributes(req.user.companyId, id); }
 }

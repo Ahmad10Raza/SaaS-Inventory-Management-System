@@ -19,6 +19,16 @@ export class Category {
 
   @Prop({ default: true })
   isActive: boolean;
+
+  // ── New Architecture Fields ─────────────────────────
+  @Prop({ default: null })
+  masterCategoryId: string; // If null, it's a custom category
+
+  @Prop({ default: false })
+  isCustomCategory: boolean;
+
+  @Prop({ default: 0 })
+  displayOrder: number;
 }
 
 export const CategorySchema = SchemaFactory.createForClass(Category);

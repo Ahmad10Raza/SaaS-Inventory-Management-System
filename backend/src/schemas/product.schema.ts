@@ -12,48 +12,29 @@ export class Product {
   name: string;
 
   @Prop()
-  description: string;
-
-  @Prop({ required: true })
-  sku: string;
+  brand: string;
 
   @Prop()
-  barcode: string;
+  description: string;
 
   @Prop({ type: Types.ObjectId, ref: 'Category' })
   categoryId: Types.ObjectId;
 
-  @Prop({ required: true, min: 0 })
-  price: number;
-
-  @Prop({ min: 0, default: 0 })
-  costPrice: number;
-
   @Prop({ default: 0 })
   taxPercentage: number;
-
-  @Prop({ default: 'piece' })
-  unit: string;
 
   @Prop({ type: [String], default: [] })
   images: string[];
 
-  @Prop({ default: 10 })
-  minStockLevel: number;
+  @Prop({ type: Object, default: {} })
+  dynamicAttributes: Record<string, any>;
 
-  @Prop({ default: 20 })
-  reorderThreshold: number;
-
-  @Prop({ type: Object })
-  variants: Record<string, any>;
-
-  @Prop({ default: 0 })
-  currentStock: number;
+  @Prop({ type: Number, min: 0, default: 0 })
+  minSellingPrice: number; // Global floor for this product across all variants
 
   @Prop({ default: true })
   isActive: boolean;
 }
 
 export const ProductSchema = SchemaFactory.createForClass(Product);
-ProductSchema.index({ companyId: 1, sku: 1 }, { unique: true });
-ProductSchema.index({ companyId: 1, name: 'text' });
+ProductSchema.index({ companyId: 1, name: 'text', brand: 'text' });

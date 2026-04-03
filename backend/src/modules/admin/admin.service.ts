@@ -66,12 +66,29 @@ export class AdminService implements OnModuleInit {
 
     this.logger.log(`[DIAGNOSTIC] listCompanies: found ${companies.length} records matching query: ${JSON.stringify(query)}`);
 
-    // Map companies directly from master DB (skipping expensive cross-DB user counts for the list view)
-    const enriched = companies.map((company) => ({
-      ...company,
-      userCount: 0, // Placeholder: fetch as needed on details page
-      trialExpired: company.trialEndsAt ? new Date(company.trialEndsAt) < new Date() : false,
-    }));
+    // Map companies directly from master DB with concurrent user count fetching
+    const enriched = await Promise.all(
+      companies.map(async (company) => {
+        let userCount = 0;
+        try {
+          if (company.databaseName) {
+            const conn = await this.tenantConnectionService.getConnection(company.databaseName);
+            const UserModel = conn.modelNames().includes('User')
+              ? conn.model('User')
+              : conn.model('User', UserSchema);
+            userCount = await UserModel.countDocuments();
+          }
+        } catch (err) {
+          this.logger.warn(`Could not fetch user count for ${company.databaseName}: ${err.message}`);
+        }
+
+        return {
+          ...company,
+          userCount,
+          trialExpired: company.trialEndsAt ? new Date(company.trialEndsAt) < new Date() : false,
+        };
+      }),
+    );
 
     return {
       data: enriched,
@@ -121,19 +138,21 @@ export class AdminService implements OnModuleInit {
   // ACTIVATE / DEACTIVATE COMPANY
   // ─────────────────────────────────────────────────────
   async updateCompanyStatus(id: string, dto: UpdateCompanyStatusDto) {
-    const company = await this.companyModel.findById(id);
+    const company = await this.companyModel.findByIdAndUpdate(
+      id,
+      { isActive: dto.isActive },
+      { new: true }
+    ).lean();
+    
     if (!company) throw new NotFoundException('Company not found');
 
-    company.isActive = dto.isActive;
-    await company.save();
-
     this.logger.log(
-      `Company ${company.companyId} (${company.name}) ${dto.isActive ? 'activated' : 'deactivated'}. Reason: ${dto.reason || 'N/A'}`,
+      `Company ${company.companyId || id} (${company.name}) ${dto.isActive ? 'activated' : 'deactivated'}. Reason: ${dto.reason || 'N/A'}`,
     );
 
     return {
       message: `Company ${dto.isActive ? 'activated' : 'deactivated'} successfully`,
-      company: company.toObject(),
+      company,
     };
   }
 
@@ -199,6 +218,7 @@ export class AdminService implements OnModuleInit {
   async createCompany(dto: CreateCompanyDto) {
     this.logger.log(`Manually creating company: ${dto.name} for ${dto.ownerEmail}`);
 
+    // Generate a secure random password for the new tenant admin
     const tempPassword = uuidv4().split('-')[0].toUpperCase();
 
     try {
@@ -226,10 +246,17 @@ export class AdminService implements OnModuleInit {
         dto.name,
       );
 
+      this.logger.log(`=================================================`);
+      this.logger.log(`✅ COMPANY CREATED: ${dto.name}`);
+      this.logger.log(`🔐 LOGIN EMAIL: ${dto.ownerEmail}`);
+      this.logger.log(`🔑 TEMP PASSWORD: ${tempPassword}`);
+      this.logger.log(`=================================================`);
+
       return {
         message: 'Company created and invitation sent successfully',
         companyId: result.companyId,
         ownerEmail: dto.ownerEmail,
+        tempPassword,
       };
     } catch (err) {
       this.logger.error(`Manual company creation failed: ${err.message}`);

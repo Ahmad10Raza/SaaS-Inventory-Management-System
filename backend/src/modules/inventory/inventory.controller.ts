@@ -4,11 +4,21 @@ import { RolesGuard, RequirePermissions } from '../../guards/roles.guard';
 import { InventoryService } from './inventory.service';
 import { StockInDto, StockOutDto, StockAdjustDto, StockTransferDto } from './dto/inventory.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { ValidationService } from './validation.service';
 
 @Controller('inventory')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 export class InventoryController {
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(
+    private readonly inventoryService: InventoryService,
+    private readonly validationService: ValidationService
+  ) {}
+
+  @Get('validate')
+  @RequirePermissions('inventory.view')
+  validateInventory(@Request() req: any) {
+    return this.validationService.validateTenantWorkflow(req.user.companyId);
+  }
 
   @Get()
   @RequirePermissions('inventory.view')

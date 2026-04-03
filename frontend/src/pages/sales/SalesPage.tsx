@@ -15,6 +15,7 @@ export default function SalesPage() {
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showInvoiceId, setShowInvoiceId] = useState<string | null>(null);
+  const [showViewModal, setShowViewModal] = useState<any>(null);
   const [paymentModal, setPaymentModal] = useState<{ id: string, amount: number } | null>(null);
   const [payMethod, setPayMethod] = useState('cash');
   
@@ -90,6 +91,7 @@ export default function SalesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       toast.success('Order status updated!');
+      setShowViewModal(null);
     },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to update status'),
   });
@@ -102,14 +104,27 @@ export default function SalesPage() {
     setItems([]);
   };
 
-  const handleAddItem = () => setItems([...items, { productId: '', productName: '', quantity: 1, unitPrice: 0, taxPercentage: 0, discount: 0 }]);
+  const handleAddItem = () => setItems([...items, { variantId: '', productName: '', quantity: 1, unitPrice: 0, taxPercentage: 0, discount: 0 }]);
 
   const handleItemChange = (index: number, field: string, value: any) => {
     const newItems = [...items];
-    if (field === 'productId') {
-      const p = products?.find((p: any) => p._id === value);
-      if (p) {
-        newItems[index] = { ...newItems[index], productId: p._id, productName: p.name, unitPrice: p.price, taxPercentage: p.taxPercentage || 0, maxStock: p.currentStock };
+    if (field === 'variantId') {
+      let foundVariant: any = null;
+      let foundProd: any = null;
+      products?.forEach((p: any) => {
+        const v = p.variants?.find((v: any) => v._id === value);
+        if (v) { foundVariant = v; foundProd = p; }
+      });
+
+      if (foundVariant) {
+        newItems[index] = { 
+          ...newItems[index], 
+          variantId: foundVariant._id, 
+          productName: `${foundProd.name} - ${foundVariant.sku}`, 
+          unitPrice: foundVariant.price, 
+          taxPercentage: foundProd.taxPercentage || 0,
+          maxStock: foundVariant.availableStock || 0
+        };
       }
     } else {
       newItems[index][field] = value;
@@ -129,7 +144,7 @@ export default function SalesPage() {
       warehouseId, 
       paymentMethod, 
       items: items.map(i => ({ 
-        productId: i.productId,
+        variantId: i.variantId,
         productName: i.productName,
         quantity: Number(i.quantity), 
         unitPrice: Number(i.unitPrice), 
@@ -142,7 +157,17 @@ export default function SalesPage() {
   const columns = [
     { key: 'saleNumber', label: 'Sale #', render: (i: any) => <span className="font-semibold text-primary">{i.saleNumber}</span> },
     { key: 'customerId', label: 'Customer', render: (i: any) => i.customerId?.name || '-' },
-    { key: 'status', label: 'Status', render: (i: any) => <span className="capitalize">{i.status}</span> },
+    { key: 'status', label: 'Status', render: (i: any) => (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold uppercase ${
+        i.status === 'delivered' ? 'bg-green-100 text-green-700' :
+        i.status === 'shipped' ? 'bg-blue-100 text-blue-700' :
+        i.status === 'reserved' ? 'bg-purple-100 text-purple-700' :
+        i.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+        'bg-yellow-100 text-yellow-700'
+      }`}>
+        {i.status.replace('_', ' ')}
+      </span>
+    )},
     { key: 'paymentStatus', label: 'Payment', render: (i: any) => (
       <Can permission="sales.pay">
         <button
@@ -164,7 +189,7 @@ export default function SalesPage() {
     { key: 'totalAmount', label: 'Total', render: (i: any) => `₹${i.totalAmount?.toLocaleString()}` },
     { key: 'createdAt', label: 'Date', render: (i: any) => new Date(i.createdAt).toLocaleDateString() },
     { key: 'action', label: 'Invoice', render: (i: any) => (
-      <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={(e) => { e.stopPropagation(); setShowInvoiceId(i.invoiceId); }}>
+      <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={(e) => { e.stopPropagation(); setShowInvoiceId(i._id); }}>
         <FileText className="w-4 h-4 text-blue-600" />
       </Button>
     )},
@@ -185,6 +210,7 @@ export default function SalesPage() {
         onSearch={(q) => { setSearch(q); setPage(1); }}
         onPageChange={setPage}
         onAdd={() => setShowModal(true)}
+        onView={(i) => setShowViewModal(i)}
         addLabel="New Sale"
         addPermission="sales.create"
         viewPermission="sales.view"
@@ -259,9 +285,15 @@ export default function SalesPage() {
                           return (
                             <tr key={index} className="border-t">
                               <td className="px-3 py-2">
-                                <select className="flex h-8 w-full rounded border bg-background px-2 py-1 text-xs" value={item.productId} onChange={e => handleItemChange(index, 'productId', e.target.value)} required>
-                                  <option value="">Select Product...</option>
-                                  {products?.map((p: any) => <option key={p._id} value={p._id}>{p.name} (Stock: {p.currentStock})</option>)}
+                                <select className="flex h-8 w-full rounded border bg-background px-2 py-1 text-xs" value={item.variantId} onChange={e => handleItemChange(index, 'variantId', e.target.value)} required>
+                                  <option value="">Select Product Variant...</option>
+                                  {products?.map((p: any) => (
+                                    <optgroup key={p._id} label={p.name}>
+                                      {p.variants?.map((v: any) => (
+                                        <option key={v._id} value={v._id}>{p.name} ({v.sku}) - Stock: {v.availableStock || 0}</option>
+                                      ))}
+                                    </optgroup>
+                                  ))}
                                 </select>
                               </td>
                               <td className="px-3 py-2">
@@ -365,6 +397,91 @@ export default function SalesPage() {
               <Button variant="outline" size="sm" className="bg-white border-gray-200 text-gray-800 hover:bg-gray-100 font-semibold" onClick={() => window.print()}>
                 Print/PDF
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View/Action Modal */}
+      {showViewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-card border rounded-xl shadow-xl w-full max-w-lg mx-auto animate-scale-in flex flex-col max-h-full">
+            <div className="flex items-center justify-between p-6 border-b">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                Sale <span className="text-primary">{showViewModal.saleNumber}</span>
+              </h2>
+              <button onClick={() => setShowViewModal(null)}><X className="w-5 h-5 text-muted-foreground" /></button>
+            </div>
+            <div className="p-6 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4 text-sm mb-6">
+                <div><p className="text-muted-foreground mb-1">Status</p><p className="font-semibold uppercase">{showViewModal.status}</p></div>
+                <div><p className="text-muted-foreground mb-1">Total Amount</p><p className="font-semibold">₹{showViewModal.totalAmount?.toLocaleString()}</p></div>
+                <div><p className="text-muted-foreground mb-1">Customer</p><p className="">{showViewModal.customerId?.name || '-'}</p></div>
+                <div><p className="text-muted-foreground mb-1">Created At</p><p className="">{new Date(showViewModal.createdAt).toLocaleDateString()}</p></div>
+              </div>
+
+              <Label className="text-base font-semibold mb-3 block">Items ({showViewModal.items?.length})</Label>
+              <div className="space-y-3 mb-6">
+                {showViewModal.items?.map((it: any, idx: number) => (
+                  <div key={idx} className="flex justify-between items-center text-sm p-3 border rounded-md">
+                    <div>
+                      <p className="font-medium">{it.productName}</p>
+                      <p className="text-muted-foreground text-xs">{it.quantity} x ₹{it.unitPrice}</p>
+                    </div>
+                    <div className="font-semibold">₹{it.totalPrice?.toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Actions */}
+               <div className="space-y-3 border-t pt-4">
+                <p className="text-sm font-medium mb-2">Update Workflow Status:</p>
+                {showViewModal.status === 'draft' && (
+                  <Can permission="sales.update">
+                    <Button className="w-full gap-2" onClick={() => updateStatusMut.mutate({ id: showViewModal._id, status: 'confirmed' })} disabled={updateStatusMut.isPending}>
+                      Confirm Order
+                    </Button>
+                  </Can>
+                )}
+                {showViewModal.status === 'confirmed' && (
+                  <Can permission="sales.update">
+                    <Button className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => updateStatusMut.mutate({ id: showViewModal._id, status: 'reserved' })} disabled={updateStatusMut.isPending}>
+                      Reserve Stock Now
+                    </Button>
+                  </Can>
+                )}
+                {showViewModal.status === 'reserved' && (
+                  <Can permission="sales.update">
+                    <Button className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => updateStatusMut.mutate({ id: showViewModal._id, status: 'shipped' })} disabled={updateStatusMut.isPending}>
+                      Ship Order (Deducts Stock Physically)
+                    </Button>
+                  </Can>
+                )}
+                {showViewModal.status === 'shipped' && (
+                  <Can permission="sales.update">
+                    <Button className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white" onClick={() => updateStatusMut.mutate({ id: showViewModal._id, status: 'delivered' })} disabled={updateStatusMut.isPending}>
+                      Mark as Delivered
+                    </Button>
+                  </Can>
+                )}
+                {!showViewModal.warehouseId && showViewModal.status === 'confirmed' && (
+                   <p className="text-xs text-red-500 text-center">Cannot reserve stock: No warehouse assigned</p>
+                )}
+                {['draft', 'confirmed', 'reserved'].includes(showViewModal.status) && (
+                   <Can permission="sales.update">
+                     <Button variant="outline" className="w-full text-red-500" onClick={() => { if(confirm('Cancel order?')) updateStatusMut.mutate({ id: showViewModal._id, status: 'cancelled' })}}>
+                       Cancel Order
+                     </Button>
+                   </Can>
+                )}
+                {['shipped', 'delivered'].includes(showViewModal.status) && (
+                   <Can permission="sales.update">
+                     <Button variant="outline" className="w-full text-red-500" onClick={() => { if(confirm('Process Return?')) updateStatusMut.mutate({ id: showViewModal._id, status: 'returned' })}}>
+                       Process Return
+                     </Button>
+                   </Can>
+                )}
+               </div>
             </div>
           </div>
         </div>

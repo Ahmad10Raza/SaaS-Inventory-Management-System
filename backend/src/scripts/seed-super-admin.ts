@@ -11,8 +11,8 @@ async function bootstrap() {
   const companyModel = app.get(getModelToken(Company.name));
   const connectionService = app.get(TenantConnectionService);
 
-  const adminEmail = 'admin@saas.com';
-  const adminPassword = 'SuperAdmin2026!';
+  const adminEmail = process.env.SUPER_ADMIN_EMAIL || 'admin@saas.com';
+  const adminPassword = process.env.SUPER_ADMIN_PASSWORD || 'SuperAdmin2026!';
 
   console.log('--- Super Admin Seeding ---');
 

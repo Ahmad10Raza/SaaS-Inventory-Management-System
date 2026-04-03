@@ -15,7 +15,7 @@ export class ProductsController {
   @Post()
   @RequirePermissions('product.create')
   create(@Request() req: any, @Body() dto: CreateProductDto) {
-    return this.productsService.create(req.user.companyId, dto);
+    return this.productsService.create(req.user.companyId, req.user.sub, dto);
   }
 
   @Get()

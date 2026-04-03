@@ -17,10 +17,13 @@ export class Sale {
   @Prop({ type: Types.ObjectId, ref: 'Warehouse' })
   warehouseId: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'Invoice' })
+  invoiceId: Types.ObjectId;
+
   @Prop({
     type: [
       {
-        productId: { type: Types.ObjectId, ref: 'Product' },
+        variantId: { type: Types.ObjectId, ref: 'ProductVariant' },
         productName: String,
         quantity: Number,
         unitPrice: Number,
@@ -33,7 +36,7 @@ export class Sale {
     default: [],
   })
   items: {
-    productId: Types.ObjectId;
+    variantId: Types.ObjectId;
     productName: string;
     quantity: number;
     unitPrice: number;
@@ -56,7 +59,7 @@ export class Sale {
   totalAmount: number;
 
   @Prop({
-    enum: ['draft', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'],
+    enum: ['draft', 'confirmed', 'reserved', 'shipped', 'delivered', 'cancelled', 'returned'],
     default: 'draft',
   })
   status: string;

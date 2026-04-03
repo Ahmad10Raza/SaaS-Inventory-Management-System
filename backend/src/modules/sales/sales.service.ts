@@ -4,29 +4,88 @@ import { Request } from 'express';
 import { Model, Connection } from 'mongoose';
 import { Sale, SaleDocument, SaleSchema } from '../../schemas/sale.schema';
 import { Invoice, InvoiceDocument, InvoiceSchema } from '../../schemas/invoice.schema';
-import { Inventory, InventoryDocument, InventorySchema } from '../../schemas/inventory.schema';
-import { StockLog, StockLogDocument, StockLogSchema } from '../../schemas/stock-log.schema';
-import { Product, ProductDocument, ProductSchema } from '../../schemas/product.schema';
-import { CreateSaleDto, SalePaymentDto } from './dto/sale.dto';
+import { WarehouseStock, WarehouseStockDocument, WarehouseStockSchema } from '../../schemas/warehouse-stock.schema';
+import { StockMovement, StockMovementDocument, StockMovementSchema } from '../../schemas/stock-movement.schema';
+import { ProductVariant, ProductVariantDocument, ProductVariantSchema } from '../../schemas/product-variant.schema';
+import { Customer, CustomerDocument, CustomerSchema } from '../../schemas/customer.schema';
+import { PriceHistory, PriceHistoryDocument, PriceHistorySchema } from '../../schemas/price-history.schema';
+import { CreateSaleDto, SalePaymentDto, UpdateSaleStatusDto } from './dto/sale.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { ensureObjectId } from '../../common/utils/tenant.utils';
 
 @Injectable({ scope: Scope.REQUEST })
 export class SalesService {
-  private saleModel: Model<SaleDocument>;
-  private invoiceModel: Model<InvoiceDocument>;
-  private inventoryModel: Model<InventoryDocument>;
-  private stockLogModel: Model<StockLogDocument>;
-  private productModel: Model<ProductDocument>;
+  private _saleModel: Model<SaleDocument>;
+  private _invoiceModel: Model<InvoiceDocument>;
+  private _stockModel: Model<WarehouseStockDocument>;
+  private _movementModel: Model<StockMovementDocument>;
+  private _variantModel: Model<ProductVariantDocument>;
+  private _customerModel: Model<CustomerDocument>;
+  private _priceHistoryModel: Model<PriceHistoryDocument>;
 
-  constructor(@Inject(REQUEST) private request: any) {
-    const conn = this.request.tenantConnection;
+  constructor(@Inject(REQUEST) private request: any) {}
+
+  private get saleModel(): Model<SaleDocument> {
+    const conn: Connection = this.request.tenantConnection;
     if (!conn) throw new Error('Tenant connection not found in request');
-    
-    this.saleModel = conn.model(Sale.name, SaleSchema) as any;
-    this.invoiceModel = conn.model(Invoice.name, InvoiceSchema) as any;
-    this.inventoryModel = conn.model(Inventory.name, InventorySchema) as any;
-    this.stockLogModel = conn.model(StockLog.name, StockLogSchema) as any;
-    this.productModel = conn.model(Product.name, ProductSchema) as any;
+    if (!this._saleModel) {
+      this._saleModel = (conn.modelNames().includes(Sale.name) ? conn.model(Sale.name) : conn.model(Sale.name, SaleSchema)) as any;
+    }
+    return this._saleModel;
+  }
+
+  private get invoiceModel(): Model<InvoiceDocument> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._invoiceModel) {
+      this._invoiceModel = (conn.modelNames().includes(Invoice.name) ? conn.model(Invoice.name) : conn.model(Invoice.name, InvoiceSchema)) as any;
+    }
+    return this._invoiceModel;
+  }
+
+  private get stockModel(): Model<WarehouseStockDocument> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._stockModel) {
+      this._stockModel = (conn.modelNames().includes(WarehouseStock.name) ? conn.model(WarehouseStock.name) : conn.model(WarehouseStock.name, WarehouseStockSchema)) as any;
+    }
+    return this._stockModel;
+  }
+
+  private get movementModel(): Model<StockMovementDocument> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._movementModel) {
+      this._movementModel = (conn.modelNames().includes(StockMovement.name) ? conn.model(StockMovement.name) : conn.model(StockMovement.name, StockMovementSchema)) as any;
+    }
+    return this._movementModel;
+  }
+
+  private get variantModel(): Model<ProductVariantDocument> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._variantModel) {
+      this._variantModel = (conn.modelNames().includes(ProductVariant.name) ? conn.model(ProductVariant.name) : conn.model(ProductVariant.name, ProductVariantSchema)) as any;
+    }
+    return this._variantModel;
+  }
+
+  private get customerModel(): Model<CustomerDocument> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._customerModel) {
+      this._customerModel = (conn.modelNames().includes(Customer.name) ? conn.model(Customer.name) : conn.model(Customer.name, CustomerSchema)) as any;
+    }
+    return this._customerModel;
+  }
+
+  private get priceHistoryModel(): Model<PriceHistoryDocument> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._priceHistoryModel) {
+      this._priceHistoryModel = (conn.modelNames().includes(PriceHistory.name) ? conn.model(PriceHistory.name) : conn.model(PriceHistory.name, PriceHistorySchema)) as any;
+    }
+    return this._priceHistoryModel;
   }
 
   private generateNumber(prefix: string): string {
@@ -51,13 +110,17 @@ export class SalesService {
     const totalAmount = subtotal + totalTax;
 
     // Just check stock availability in create, don't deduct yet. Deduction happens on 'shipped' status.
+    // Check Available Stock (Strict ERP check)
     if (dto.warehouseId) {
       for (const item of items) {
-        const inv = await this.inventoryModel.findOne({
-          companyId, productId: item.productId, warehouseId: dto.warehouseId,
-        });
-        if (!inv || inv.quantity < item.quantity) {
-          throw new BadRequestException(`Insufficient stock for ${item.productName} in selected warehouse`);
+        const stockFilter = {
+          companyId: { $in: [companyId, ensureObjectId(companyId)] },
+          variantId: ensureObjectId(item.variantId),
+          warehouseId: ensureObjectId(dto.warehouseId),
+        };
+        const stock = await this.stockModel.findOne(stockFilter);
+        if (!stock || stock.availableQuantity < item.quantity) {
+          throw new BadRequestException(`Insufficient available stock for ${item.productName}. Required: ${item.quantity}, Available: ${stock?.availableQuantity || 0}`);
         }
       }
     }
@@ -67,13 +130,15 @@ export class SalesService {
     const userRole = this.request.user?.role;
     const initialStatus = (userRole === 'staff' || userRole === 'read_only') ? 'draft' : 'confirmed';
 
+    const cId = ensureObjectId(companyId);
+    
     // Create sale
     const sale = await this.saleModel.create({
-      companyId,
+      companyId: cId,
       saleNumber: this.generateNumber('SL'),
-      customerId: dto.customerId,
-      warehouseId: dto.warehouseId,
-      items,
+      customerId: ensureObjectId(dto.customerId),
+      warehouseId: ensureObjectId(dto.warehouseId),
+      items: items.map(i => ({ ...i, variantId: ensureObjectId(i.variantId) })),
       subtotal,
       discount: totalDiscount,
       taxAmount: totalTax,
@@ -91,10 +156,11 @@ export class SalesService {
     dueDate.setDate(dueDate.getDate() + 30);
 
     const invoice = await this.invoiceModel.create({
-      companyId,
+      companyId: cId,
       invoiceNumber,
       type: 'sale',
       referenceId: sale._id as any,
+      customerId: ensureObjectId(dto.customerId),
       items: items.map(i => ({
         description: i.productName,
         quantity: i.quantity,
@@ -111,12 +177,69 @@ export class SalesService {
       ...(isPaidUpfront && { paidDate: new Date() }),
     });
 
+    // Bug 6 fix: Update customer stats
+    await this.customerModel.findByIdAndUpdate(ensureObjectId(dto.customerId), {
+      $inc: {
+        totalPurchases: totalAmount,
+        outstandingAmount: isPaidUpfront ? 0 : totalAmount,
+      },
+    });
+
+    // Auto-reserve stock if confirmed immediately (Real-time update)
+    if (initialStatus === 'confirmed' && dto.warehouseId) {
+      for (const item of items) {
+        const vId = ensureObjectId(item.variantId);
+        const wId = ensureObjectId(dto.warehouseId);
+        const stockFilter = {
+          companyId: { $in: [companyId, ensureObjectId(companyId)] },
+          variantId: vId,
+          warehouseId: wId,
+        };
+        const stock = await this.stockModel.findOne(stockFilter);
+        if (stock) {
+          const variant = await this.variantModel.findById(vId);
+          const prevReserved = stock.reservedQuantity || 0;
+          stock.reservedQuantity = prevReserved + item.quantity;
+          await stock.save();
+
+          await this.movementModel.create({
+            companyId: cId,
+            variantId: vId,
+            productId: variant?.productId,
+            warehouseId: wId,
+            bucket: 'reserved',
+            type: 'reserved_lock',
+            quantity: item.quantity,
+            previousQuantity: prevReserved,
+            newQuantity: stock.reservedQuantity,
+            reference: sale.saleNumber,
+            referenceType: 'sale',
+            performedBy: userId,
+          });
+        }
+      }
+    }
+
+    // Bug 15 fix: Record sales price history
+    for (const item of items) {
+      const vId = ensureObjectId(item.variantId);
+      const variant = await this.variantModel.findById(vId);
+      if (variant && variant.price !== item.unitPrice) {
+        await this.priceHistoryModel.create({
+          companyId: cId, variantId: vId, priceType: 'selling',
+          oldPrice: variant.price, newPrice: item.unitPrice,
+          currency: 'INR', changedBy: userId, source: 'sale_order',
+          reason: `Selling price used in ${sale.saleNumber}`,
+        });
+      }
+    }
+
     return { sale, invoice };
   }
 
   async findAll(companyId: string, query: PaginationDto & { status?: string }) {
     const { page = 1, limit = 20, search, sortBy = 'createdAt', sortOrder = 'desc' } = query;
-    const filter: any = { companyId };
+    const filter: any = { companyId: { $in: [companyId, ensureObjectId(companyId)] } };
     if (query.status) filter.status = query.status;
     if (search) {
       filter.$or = [{ saleNumber: { $regex: search, $options: 'i' } }];
@@ -134,7 +257,8 @@ export class SalesService {
   }
 
   async findOne(companyId: string, id: string) {
-    const sale = await this.saleModel.findOne({ _id: id, companyId })
+    const filter = { _id: ensureObjectId(id), companyId: { $in: [companyId, ensureObjectId(companyId)] } };
+    const sale = await this.saleModel.findOne(filter)
       .populate('customerId', 'name email phone gstNumber')
       .populate('warehouseId', 'name')
       .lean();
@@ -142,8 +266,9 @@ export class SalesService {
     return sale;
   }
 
-  async getInvoice(companyId: string, invoiceId: string) {
-    const invoice = await this.invoiceModel.findOne({ _id: invoiceId, companyId })
+  async getInvoice(companyId: string, saleId: string) {
+    const filter = { referenceId: ensureObjectId(saleId), companyId: { $in: [companyId, ensureObjectId(companyId)] } };
+    const invoice = await this.invoiceModel.findOne(filter)
       .populate('customerId', 'name email phone address gstNumber')
       .lean();
     if (!invoice) throw new NotFoundException('Invoice not found');
@@ -151,7 +276,8 @@ export class SalesService {
   }
 
   async recordPayment(companyId: string, id: string, dto: SalePaymentDto) {
-    const sale = await this.saleModel.findOne({ _id: id, companyId });
+    const filter = { _id: ensureObjectId(id), companyId: { $in: [companyId, ensureObjectId(companyId)] } };
+    const sale = await this.saleModel.findOne(filter);
     if (!sale) throw new NotFoundException('Sale not found');
 
     sale.paidAmount = (sale.paidAmount || 0) + dto.amount;
@@ -167,6 +293,11 @@ export class SalesService {
       }
     );
 
+    // Bug 6 fix: Reduce customer outstanding balance
+    await this.customerModel.findByIdAndUpdate(ensureObjectId(sale.customerId), {
+      $inc: { outstandingAmount: -dto.amount },
+    });
+
     return sale;
   }
 
@@ -174,66 +305,138 @@ export class SalesService {
     const sale = await this.saleModel.findOne({ _id: id, companyId });
     if (!sale) throw new NotFoundException('Sale not found');
 
-    const previousStatus = sale.status;
+    const prevStatus = sale.status;
     const userRole = this.request.user?.role;
 
-    // Approval Workflow Logic
     if (status === 'confirmed') {
-      if (!['super_admin', 'company_owner', 'sales_manager'].includes(userRole)) {
-        throw new ForbiddenException('Only managers or admins can confirm sales orders');
-      }
-      if (previousStatus !== 'draft') {
-        throw new BadRequestException(`Cannot confirm order from ${previousStatus} status`);
-      }
+      if (!['super_admin', 'company_owner', 'sales_manager'].includes(userRole)) throw new ForbiddenException('No permission');
+      if (prevStatus !== 'draft') throw new BadRequestException('Invalid status transition');
     }
 
-    if (status === 'processing') {
-      if (previousStatus !== 'confirmed') {
-        throw new BadRequestException('Order must be confirmed before processing');
+    if (status === 'reserved') {
+      if (prevStatus !== 'confirmed' && prevStatus !== 'draft') throw new BadRequestException('Must be confirmed first');
+      
+      const cId = ensureObjectId(companyId);
+
+      for (const item of sale.items) {
+        const vId = ensureObjectId(item.variantId);
+        const wId = ensureObjectId(sale.warehouseId);
+        const stockFilter = {
+          companyId: { $in: [companyId, cId] },
+          variantId: vId,
+          warehouseId: wId,
+        };
+        const stock = await this.stockModel.findOne(stockFilter);
+        if (!stock || stock.availableQuantity < item.quantity) throw new BadRequestException(`No available stock to reserve item ${item.productName}`);
+        
+        const variant = await this.variantModel.findById(vId);
+        const prevReserved = stock.reservedQuantity || 0;
+        stock.reservedQuantity = prevReserved + item.quantity;
+        await stock.save();
+
+        await this.movementModel.create({
+          companyId: cId, variantId: vId, productId: variant?.productId, warehouseId: wId,
+          bucket: 'reserved', type: 'reserved_lock', quantity: item.quantity,
+          previousQuantity: prevReserved, newQuantity: stock.reservedQuantity,
+          reference: sale.saleNumber, referenceType: 'sale', performedBy: ensureObjectId(userId)
+        });
       }
     }
 
     if (status === 'shipped') {
-      if (!['super_admin', 'company_owner', 'sales_manager', 'warehouse_manager', 'staff'].includes(userRole)) {
-        throw new ForbiddenException('You do not have permission to ship orders');
-      }
-      if (previousStatus !== 'processing' && previousStatus !== 'confirmed') {
-        throw new BadRequestException('Order must be in processing or confirmed status before shipping');
-      }
-      if (!sale.warehouseId) {
-        throw new BadRequestException('Cannot ship: No warehouse specified for stock deduction');
-      }
+      if (prevStatus !== 'reserved') throw new BadRequestException('Stock must be reserved before shipping');
+      
+      const cId = ensureObjectId(companyId);
 
-      // Deduct stock on SHIPMENT
+      // DEDUCT from BOTH Total and Reserved
       for (const item of sale.items) {
-        const inv = await this.inventoryModel.findOne({
-          companyId, productId: item.productId, warehouseId: sale.warehouseId,
-        });
-        if (!inv || inv.quantity < item.quantity) {
-          throw new BadRequestException(`Insufficient stock for ${item.productName} in warehouse to complete shipment`);
-        }
-        const prevQty = inv.quantity;
-        inv.quantity -= item.quantity;
-        await inv.save();
+        const vId = ensureObjectId(item.variantId);
+        const wId = ensureObjectId(sale.warehouseId);
+        const stockFilter = {
+          companyId: { $in: [companyId, cId] },
+          variantId: vId,
+          warehouseId: wId,
+        };
+        const stock = await this.stockModel.findOne(stockFilter);
+        if (!stock) throw new BadRequestException('Stock record vanished');
+        
+        const variant = await this.variantModel.findById(vId);
+        const prevTotal = stock.totalQuantity;
 
-        // Update product total
-        const agg = await this.inventoryModel.aggregate([
-          { $match: { productId: item.productId } },
-          { $group: { _id: null, total: { $sum: '$quantity' } } },
-        ]);
-        await this.productModel.findByIdAndUpdate(item.productId, {
-          currentStock: agg[0]?.total || 0,
-        });
+        stock.totalQuantity -= item.quantity;
+        stock.reservedQuantity -= item.quantity;
+        await stock.save();
 
-        await this.stockLogModel.create({
-          companyId, productId: item.productId, warehouseId: sale.warehouseId,
-          type: 'stock_out', quantity: item.quantity,
-          previousQuantity: prevQty, newQuantity: inv.quantity,
-          reference: sale.saleNumber, referenceType: 'sale', 
-          performedBy: userId,
+        // Log deduction from Total
+        await this.movementModel.create({
+          companyId: cId, variantId: vId, productId: variant?.productId, warehouseId: wId,
+          bucket: 'total', type: 'stock_out', quantity: item.quantity,
+          previousQuantity: prevTotal, newQuantity: stock.totalQuantity,
+          reference: sale.saleNumber, referenceType: 'sale', performedBy: ensureObjectId(userId)
         });
       }
       sale.shippedDate = new Date();
+    }
+
+    if (status === 'cancelled') {
+      if (prevStatus === 'reserved') {
+        const cId = ensureObjectId(companyId);
+        // RELEASE reservation
+        for (const item of sale.items) {
+          const vId = ensureObjectId(item.variantId);
+          const wId = ensureObjectId(sale.warehouseId);
+          const variant = await this.variantModel.findById(vId);
+          const stock = await this.stockModel.findOne({ 
+            companyId: { $in: [companyId, cId] }, 
+            variantId: vId, 
+            warehouseId: wId 
+          });
+          if (stock) {
+            const prevR = stock.reservedQuantity;
+            stock.reservedQuantity -= item.quantity;
+            await stock.save();
+            
+            await this.movementModel.create({
+              companyId: cId, variantId: vId, productId: variant?.productId, warehouseId: wId,
+              bucket: 'reserved', type: 'reserved_release', quantity: item.quantity,
+              previousQuantity: prevR, newQuantity: stock.reservedQuantity,
+              reference: sale.saleNumber, referenceType: 'sale', performedBy: ensureObjectId(userId), 
+              notes: 'Sale Cancellation Reserve Release'
+            });
+          }
+        }
+      }
+    }
+
+    if (status === 'returned') {
+      if (prevStatus !== 'delivered' && prevStatus !== 'shipped') throw new BadRequestException('Cannot return non-shipped order');
+      
+      const cId = ensureObjectId(companyId);
+      // RESTORE Total stock
+      for (const item of sale.items) {
+        const vId = ensureObjectId(item.variantId);
+        const wId = ensureObjectId(sale.warehouseId);
+        const variant = await this.variantModel.findById(vId);
+        const stock = await this.stockModel.findOne({ 
+          companyId: { $in: [companyId, cId] }, 
+          variantId: vId, 
+          warehouseId: wId 
+        });
+        if (stock) {
+          const prevT = stock.totalQuantity;
+          stock.totalQuantity += item.quantity;
+          await stock.save();
+          
+          await this.movementModel.create({
+            companyId: cId, variantId: vId, productId: variant?.productId, warehouseId: wId,
+            bucket: 'total', type: 'stock_in', quantity: item.quantity,
+            previousQuantity: prevT, newQuantity: stock.totalQuantity,
+            reference: sale.saleNumber, referenceType: 'return', performedBy: userId, notes: 'Sales Return'
+          });
+        }
+      }
+      // Bug 12 fix: Mark payment as refunded
+      sale.paymentStatus = 'refunded';
     }
 
     sale.status = status;

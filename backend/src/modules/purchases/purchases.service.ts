@@ -1,29 +1,79 @@
 import { Injectable, NotFoundException, BadRequestException, Inject, Scope, ForbiddenException } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
-import { Request } from 'express';
 import { Model, Connection } from 'mongoose';
 import { Purchase, PurchaseDocument, PurchaseSchema } from '../../schemas/purchase.schema';
-import { Inventory, InventoryDocument, InventorySchema } from '../../schemas/inventory.schema';
-import { StockLog, StockLogDocument, StockLogSchema } from '../../schemas/stock-log.schema';
-import { Product, ProductDocument, ProductSchema } from '../../schemas/product.schema';
+import { WarehouseStock, WarehouseStockDocument, WarehouseStockSchema } from '../../schemas/warehouse-stock.schema';
+import { StockMovement, StockMovementDocument, StockMovementSchema } from '../../schemas/stock-movement.schema';
+import { ProductVariant, ProductVariantDocument, ProductVariantSchema } from '../../schemas/product-variant.schema';
+import { PriceHistory, PriceHistoryDocument, PriceHistorySchema } from '../../schemas/price-history.schema';
 import { CreatePurchaseDto, UpdatePurchaseStatusDto, PurchasePaymentDto } from './dto/purchase.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { Vendor, VendorDocument, VendorSchema } from '../../schemas/vendor.schema';
+import { ensureObjectId } from '../../common/utils/tenant.utils';
 
 @Injectable({ scope: Scope.REQUEST })
 export class PurchasesService {
-  private purchaseModel: Model<PurchaseDocument>;
-  private inventoryModel: Model<InventoryDocument>;
-  private stockLogModel: Model<StockLogDocument>;
-  private productModel: Model<ProductDocument>;
+  private _purchaseModel: Model<any>;
+  private _stockModel: Model<any>;
+  private _movementModel: Model<any>;
+  private _variantModel: Model<any>;
+  private _priceHistoryModel: Model<any>;
+  private _vendorModel: Model<any>;
 
-  constructor(@Inject(REQUEST) private request: any) {
-    const conn = this.request.tenantConnection;
+  constructor(@Inject(REQUEST) private request: any) {}
+
+  private get purchaseModel(): Model<any> {
+    const conn: Connection = this.request.tenantConnection;
     if (!conn) throw new Error('Tenant connection not found in request');
-    
-    this.purchaseModel = conn.model(Purchase.name, PurchaseSchema) as any;
-    this.inventoryModel = conn.model(Inventory.name, InventorySchema) as any;
-    this.stockLogModel = conn.model(StockLog.name, StockLogSchema) as any;
-    this.productModel = conn.model(Product.name, ProductSchema) as any;
+    if (!this._purchaseModel) {
+      this._purchaseModel = (conn.modelNames().includes(Purchase.name) ? conn.model<any>(Purchase.name) : conn.model<any>(Purchase.name, PurchaseSchema)) as any;
+    }
+    return this._purchaseModel;
+  }
+
+  private get stockModel(): Model<any> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._stockModel) {
+      this._stockModel = (conn.modelNames().includes(WarehouseStock.name) ? conn.model<any>(WarehouseStock.name) : conn.model<any>(WarehouseStock.name, WarehouseStockSchema)) as any;
+    }
+    return this._stockModel;
+  }
+
+  private get movementModel(): Model<any> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._movementModel) {
+      this._movementModel = (conn.modelNames().includes(StockMovement.name) ? conn.model<any>(StockMovement.name) : conn.model<any>(StockMovement.name, StockMovementSchema)) as any;
+    }
+    return this._movementModel;
+  }
+
+  private get variantModel(): Model<any> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._variantModel) {
+      this._variantModel = (conn.modelNames().includes(ProductVariant.name) ? conn.model<any>(ProductVariant.name) : conn.model<any>(ProductVariant.name, ProductVariantSchema)) as any;
+    }
+    return this._variantModel;
+  }
+
+  private get priceHistoryModel(): Model<any> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._priceHistoryModel) {
+      this._priceHistoryModel = (conn.modelNames().includes(PriceHistory.name) ? conn.model<any>(PriceHistory.name) : conn.model<any>(PriceHistory.name, PriceHistorySchema)) as any;
+    }
+    return this._priceHistoryModel;
+  }
+
+  private get vendorModel(): Model<any> {
+    const conn: Connection = this.request.tenantConnection;
+    if (!conn) throw new Error('Tenant connection not found in request');
+    if (!this._vendorModel) {
+      this._vendorModel = (conn.modelNames().includes(Vendor.name) ? conn.model<any>(Vendor.name) : conn.model<any>(Vendor.name, VendorSchema)) as any;
+    }
+    return this._vendorModel;
   }
 
   private generatePONumber(): string {
@@ -34,40 +84,56 @@ export class PurchasesService {
   }
 
   async create(companyId: string, userId: string, dto: CreatePurchaseDto) {
+    const cId = ensureObjectId(companyId);
+    
     const items = dto.items.map(item => {
-      const taxAmount = (item.unitPrice * item.quantity * (item.taxPercentage || 0)) / 100;
-      const totalPrice = item.unitPrice * item.quantity + taxAmount;
-      return { ...item, taxAmount, totalPrice };
+      const discountAmt = item.discount || 0;
+      const subtotal = item.unitPrice * item.quantity - discountAmt;
+      const taxAmount = (subtotal * (item.taxPercentage || 0)) / 100;
+      const totalPrice = subtotal + taxAmount;
+      return { ...item, variantId: ensureObjectId(item.variantId), discount: discountAmt, taxAmount, totalPrice };
     });
 
-    const subtotal = items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+    const subtotal = items.reduce((s, i) => s + (i.unitPrice * i.quantity - (i.discount || 0)), 0);
     const totalTax = items.reduce((s, i) => s + i.taxAmount, 0);
-    const totalAmount = subtotal + totalTax;
+    const itemDiscounts = items.reduce((s, i) => s + (i.discount || 0), 0);
+    const orderLevelDiscount = Number(dto.discount || 0);
+    const transportCost = Number(dto.transportCost || 0);
+    const totalAmount = subtotal + totalTax + transportCost - orderLevelDiscount;
 
-    const userRole = this.request.user?.role;
-    const initialStatus = (userRole === 'staff' || userRole === 'read_only') ? 'draft' : 'pending';
-
-    return this.purchaseModel.create({
-      companyId,
+    const po = await this.purchaseModel.create({
+      companyId: cId,
       purchaseNumber: this.generatePONumber(),
-      vendorId: dto.vendorId,
-      warehouseId: dto.warehouseId,
+      vendorId: ensureObjectId(dto.vendorId),
+      warehouseId: ensureObjectId(dto.warehouseId),
       items,
       subtotal,
+      discount: itemDiscounts + orderLevelDiscount,
+      transportCost,
       taxAmount: totalTax,
       totalAmount,
-      status: initialStatus,
+      status: 'pending',
       paymentStatus: 'unpaid',
       paidAmount: 0,
       expectedDeliveryDate: dto.expectedDeliveryDate ? new Date(dto.expectedDeliveryDate) : undefined,
       notes: dto.notes,
       createdBy: userId,
     });
+
+    await this.vendorModel.findByIdAndUpdate(ensureObjectId(dto.vendorId), {
+      $inc: {
+        totalOrders: 1,
+        totalAmount: totalAmount,
+        outstandingAmount: totalAmount,
+      },
+    });
+
+    return po;
   }
 
   async findAll(companyId: string, query: PaginationDto & { status?: string }) {
     const { page = 1, limit = 20, search, sortBy = 'createdAt', sortOrder = 'desc' } = query;
-    const filter: any = { companyId };
+    const filter: any = { companyId: { $in: [companyId, ensureObjectId(companyId)] } };
     if (query.status) filter.status = query.status;
     if (search) {
       filter.$or = [
@@ -87,7 +153,8 @@ export class PurchasesService {
   }
 
   async findOne(companyId: string, id: string) {
-    const po = await this.purchaseModel.findOne({ _id: id, companyId })
+    const filter = { _id: ensureObjectId(id), companyId: { $in: [companyId, ensureObjectId(companyId)] } };
+    const po = await this.purchaseModel.findOne(filter)
       .populate('vendorId', 'name email phone')
       .populate('warehouseId', 'name')
       .lean();
@@ -96,13 +163,12 @@ export class PurchasesService {
   }
 
   async updateStatus(companyId: string, id: string, userId: string, dto: UpdatePurchaseStatusDto) {
-    const po = await this.purchaseModel.findOne({ _id: id, companyId });
+    const po = await this.purchaseModel.findOne({ _id: ensureObjectId(id), companyId: { $in: [companyId, ensureObjectId(companyId)] } });
     if (!po) throw new NotFoundException('Purchase order not found');
 
     const previousStatus = po.status;
     const userRole = this.request.user?.role;
 
-    // Approval Workflow Logic
     if (dto.status === 'approved') {
       if (!['super_admin', 'company_owner', 'purchase_manager'].includes(userRole)) {
         throw new ForbiddenException('Only managers or admins can approve purchase orders');
@@ -113,59 +179,115 @@ export class PurchasesService {
       po.approvedBy = userId as any;
     }
 
-    if (dto.status === 'received') {
+    if (dto.status === 'received' || dto.status === 'partially_received' || dto.status === 'fully_received') {
       if (!['super_admin', 'company_owner', 'purchase_manager', 'warehouse_manager'].includes(userRole)) {
-        throw new ForbiddenException('Only warehouse managers or admins can mark orders as received');
+        throw new ForbiddenException('Only managers or admins can mark orders as received');
       }
-      if (previousStatus !== 'approved') {
-        throw new BadRequestException('Purchase order must be approved before it can be marked as received');
-      }
-      if (!po.warehouseId) {
-        throw new BadRequestException('A warehouse must be specified to receive stock');
+      if (!po.warehouseId) throw new BadRequestException('A warehouse must be specified to receive stock');
+      
+      const itemsToReceive = dto.items || (dto.status === 'fully_received' ? po.items.map((i: any) => ({
+        variantId: i.variantId.toString(),
+        receivedQuantity: i.quantity - i.receivedQuantity
+      })) : []);
+
+      const cId = ensureObjectId(companyId);
+      for (const receiveItem of itemsToReceive) {
+        const poItem = po.items.find((i: any) => i.variantId.toString() === receiveItem.variantId);
+        if (!poItem) continue;
+
+        const qtyToIn = receiveItem.receivedQuantity;
+        if (qtyToIn <= 0) continue;
+
+        const variant = await this.variantModel.findById(ensureObjectId(poItem.variantId));
+        if (!variant) continue;
+
+        const stock = await this.stockModel.findOneAndUpdate(
+          { 
+            companyId: { $in: [companyId, cId] }, 
+            variantId: ensureObjectId(poItem.variantId), 
+            warehouseId: ensureObjectId(po.warehouseId) 
+          },
+          { 
+            $inc: { totalQuantity: qtyToIn, availableQuantity: qtyToIn },
+            $set: { companyId: cId, productId: variant.productId },
+            $setOnInsert: { reorderLevel: 10, minStockLevel: 5 }
+          },
+          { upsert: true, new: true }
+        );
+
+        await this.movementModel.create({
+          companyId: ensureObjectId(companyId), 
+          variantId: ensureObjectId(poItem.variantId), 
+          warehouseId: ensureObjectId(po.warehouseId),
+          productId: variant.productId,
+          bucket: 'total', type: 'stock_in', quantity: qtyToIn,
+          previousQuantity: stock.totalQuantity - qtyToIn, newQuantity: stock.totalQuantity,
+          reference: po.purchaseNumber, referenceType: 'purchase',
+          performedBy: ensureObjectId(userId),
+        });
+
+        if (variant.costPrice !== poItem.unitPrice) {
+          await this.priceHistoryModel.create({
+            companyId: ensureObjectId(companyId), 
+            variantId: ensureObjectId(poItem.variantId), 
+            priceType: 'cost',
+            oldPrice: variant.costPrice, newPrice: poItem.unitPrice,
+            currency: 'USD', 
+            changedBy: ensureObjectId(userId), 
+            source: 'purchase_order_received',
+            reason: `Updated via PO: ${po.purchaseNumber}`
+          });
+          variant.costPrice = poItem.unitPrice;
+          await variant.save();
+        }
+
+        poItem.receivedQuantity += qtyToIn;
       }
       
-      // Auto stock-in when PO is received
-      for (const item of po.items) {
-        let inv = await this.inventoryModel.findOne({
-          companyId, productId: item.productId, warehouseId: po.warehouseId,
-        });
-        const prevQty = inv?.quantity || 0;
-        if (inv) {
-          inv.quantity += item.quantity;
-          await inv.save();
-        } else {
-          inv = await this.inventoryModel.create({
-            companyId, productId: item.productId, warehouseId: po.warehouseId,
-            quantity: item.quantity,
-          });
-        }
-        // Update product total stock
-        const agg = await this.inventoryModel.aggregate([
-          { $match: { productId: item.productId } },
-          { $group: { _id: null, total: { $sum: '$quantity' } } },
-        ]);
-        await this.productModel.findByIdAndUpdate(item.productId, {
-          currentStock: agg[0]?.total || 0,
-        });
-        // Log
-        await this.stockLogModel.create({
-          companyId, productId: item.productId, warehouseId: po.warehouseId,
-          type: 'stock_in', quantity: item.quantity,
-          previousQuantity: prevQty, newQuantity: prevQty + item.quantity,
-          reference: po.purchaseNumber, referenceType: 'purchase',
-          performedBy: userId,
-        });
-      }
       po.receivedDate = new Date();
+      const allReceived = po.items.every((i: any) => i.receivedQuantity >= i.quantity);
+      po.status = allReceived ? 'fully_received' : 'partially_received';
+    } else {
+      po.status = dto.status as any;
     }
 
-    po.status = dto.status as any;
+    if (dto.status === 'cancelled') {
+        const cId = ensureObjectId(companyId);
+        for (const item of po.items) {
+            if (item.receivedQuantity > 0) {
+                const stock = await this.stockModel.findOneAndUpdate(
+                    { 
+                        companyId: { $in: [companyId, cId] }, 
+                        variantId: ensureObjectId(item.variantId), 
+                        warehouseId: ensureObjectId(po.warehouseId) 
+                    },
+                    { $inc: { totalQuantity: -item.receivedQuantity, availableQuantity: -item.receivedQuantity } },
+                    { new: true }
+                );
+                
+                if (stock) {
+                    await this.movementModel.create({
+                        companyId: cId, 
+                        variantId: ensureObjectId(item.variantId), 
+                        warehouseId: ensureObjectId(po.warehouseId),
+                        productId: item.productId,
+                        bucket: 'total', type: 'stock_out', quantity: item.receivedQuantity,
+                        previousQuantity: stock.totalQuantity + item.receivedQuantity, newQuantity: stock.totalQuantity,
+                        reference: po.purchaseNumber, referenceType: 'purchase',
+                        performedBy: ensureObjectId(userId), 
+                        notes: 'PO Cancellation Stock Reversal'
+                    });
+                }
+            }
+        }
+    }
     await po.save();
     return po;
   }
 
   async recordPayment(companyId: string, id: string, dto: PurchasePaymentDto) {
-    const po = await this.purchaseModel.findOne({ _id: id, companyId });
+    const filter = { _id: ensureObjectId(id), companyId: { $in: [companyId, ensureObjectId(companyId)] } };
+    const po = await this.purchaseModel.findOne(filter);
     if (!po) throw new NotFoundException('Purchase order not found');
 
     po.paidAmount = (po.paidAmount || 0) + dto.amount;
@@ -175,15 +297,24 @@ export class PurchasesService {
       po.paymentStatus = 'partial';
     }
     await po.save();
+
+    // Bug 7: Update vendor outstanding balance
+    await this.vendorModel.findByIdAndUpdate(ensureObjectId(po.vendorId), {
+      $inc: { outstandingAmount: -dto.amount },
+    });
+
     return po;
   }
 
   async getStats(companyId: string) {
+    const cId = ensureObjectId(companyId);
+    const filter = { companyId: { $in: [companyId, cId] } };
+    
     const [totalPOs, pending, totalSpent] = await Promise.all([
-      this.purchaseModel.countDocuments({ companyId }),
-      this.purchaseModel.countDocuments({ companyId, status: 'pending' }),
+      this.purchaseModel.countDocuments(filter),
+      this.purchaseModel.countDocuments({ ...filter, status: 'pending' }),
       this.purchaseModel.aggregate([
-        { $match: { companyId, status: { $in: ['approved', 'received'] } } },
+        { $match: { companyId: { $in: [companyId, cId] }, status: { $in: ['approved', 'received', 'fully_received'] } } },
         { $group: { _id: null, total: { $sum: '$totalAmount' } } },
       ]),
     ]);

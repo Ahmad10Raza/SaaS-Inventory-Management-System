@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { PackageSearch, ArrowUpCircle, ArrowDownCircle, RefreshCw, ArrowRightLeft, Plus, X, Loader2 } from 'lucide-react';
+import { PackageSearch, ArrowUpCircle, ArrowDownCircle, RefreshCw, ArrowRightLeft, Plus, X, Loader2, ShieldCheck, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DataTable from '@/components/DataTable';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,11 +17,15 @@ export default function InventoryPage() {
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [adjustForm, setAdjustForm] = useState({
     productId: '',
+    variantId: '',
     warehouseId: '',
     type: 'stock_in',
     quantity: 1,
     reason: '',
   });
+
+  const [validationResults, setValidationResults] = useState<{ success: boolean; errors: any[]; warnings: any[] } | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -44,6 +48,7 @@ export default function InventoryPage() {
       const endpoint = d.type === 'stock_in' ? '/inventory/stock-in' : '/inventory/stock-out';
       return api.post(endpoint, {
         productId: d.productId,
+        variantId: d.variantId,
         warehouseId: d.warehouseId,
         quantity: Number(d.quantity),
         notes: d.reason || 'Manual Adjustment',
@@ -60,24 +65,44 @@ export default function InventoryPage() {
 
   const handleAdjustSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adjustForm.productId || !adjustForm.warehouseId || adjustForm.quantity <= 0) return toast.error('Invalid parameters');
+    if (!adjustForm.variantId || !adjustForm.warehouseId || adjustForm.quantity <= 0) return toast.error('Invalid parameters');
     adjustMut.mutate(adjustForm);
   };
 
+  const runAudit = async () => {
+    setIsValidating(true);
+    try {
+      const res = await api.get('/inventory/validate');
+      setValidationResults(res.data);
+      if (res.data.errors.length > 0) {
+        toast.error(`Audit found ${res.data.errors.length} critical issues!`);
+      } else {
+        toast.success('System health audit complete: No issues found.');
+      }
+    } catch (e) {
+      toast.error('Audit failed to run.');
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
   const stockColumns = [
-    { key: 'productId', label: 'Product', render: (i: any) => (
+    { key: 'variantId', label: 'Item / Variant', render: (i: any) => (
       <div>
-        <p className="font-medium">{i.productId?.name || 'N/A'}</p>
-        <p className="text-xs text-muted-foreground">{i.productId?.sku || ''}</p>
+        <p className="font-medium">{i.variantId?.sku || 'N/A'}</p>
+        <p className="text-xs text-muted-foreground">{i.productId?.name || ''}</p>
       </div>
     )},
     { key: 'warehouseId', label: 'Warehouse', render: (i: any) => i.warehouseId?.name || 'N/A' },
-    { key: 'quantity', label: 'Quantity', render: (i: any) => (
-      <span className={`font-bold ${i.quantity <= (i.productId?.minStockLevel || 10) ? 'text-red-500' : 'text-green-600'}`}>
-        {i.quantity}
-      </span>
+    { key: 'availableQuantity', label: 'Available', render: (i: any) => (
+      <span className="font-bold text-green-600">{i.availableQuantity || 0}</span>
     )},
-    { key: 'batchNumber', label: 'Batch', render: (i: any) => i.batchNumber || '-' },
+    { key: 'reservedQuantity', label: 'Reserved', render: (i: any) => (
+      <span className="text-orange-500">{i.reservedQuantity || 0}</span>
+    )},
+    { key: 'totalQuantity', label: 'Total Total', render: (i: any) => (
+      <span className="font-medium">{i.totalQuantity || 0}</span>
+    )},
   ];
 
   const logColumns = [
@@ -113,10 +138,37 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-bold">Inventory</h1>
           <p className="text-muted-foreground text-sm mt-1">Track stock levels and movements across warehouses</p>
         </div>
-        <Button onClick={() => setShowAdjustModal(true)} className="gap-2">
-          <RefreshCw className="w-4 h-4" /> Adjust Stock
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={runAudit} disabled={isValidating} className="gap-2 border-primary/30 text-primary">
+            {isValidating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            Health Audit
+          </Button>
+          <Button onClick={() => setShowAdjustModal(true)} className="gap-2">
+            <RefreshCw className="w-4 h-4" /> Adjust Stock
+          </Button>
+        </div>
       </div>
+
+      {/* Validation Alert */}
+      {validationResults && validationResults.errors.length > 0 && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardHeader className="py-3">
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              <CardTitle className="text-sm">Critical Data Conflicts Detected</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="py-3 text-sm space-y-1">
+            {validationResults.errors.map((err, idx) => (
+              <p key={idx} className="flex gap-2">
+                <span className="font-bold min-w-24">[{err.type}]</span>
+                <span className="text-muted-foreground">{err.message}</span>
+              </p>
+            ))}
+            <Button variant="ghost" size="sm" className="mt-2 text-xs h-7" onClick={() => setValidationResults(null)}>Dismiss Report</Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
@@ -168,10 +220,23 @@ export default function InventoryPage() {
             
             <form onSubmit={handleAdjustSubmit} className="p-5 space-y-4">
               <div className="space-y-2">
-                <Label>Target Product</Label>
-                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={adjustForm.productId} onChange={(e) => setAdjustForm({...adjustForm, productId: e.target.value})} required>
-                  <option value="">Select a product...</option>
-                  {products?.map((p: any) => <option key={p._id} value={p._id}>{p.name} ({p.sku})</option>)}
+                <Label>Target Item / Variant</Label>
+                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={adjustForm.variantId} onChange={(e) => {
+                  const vId = e.target.value;
+                  let pId = '';
+                  products?.forEach((p: any) => {
+                    if (p.variants?.some((v: any) => v._id === vId)) pId = p._id;
+                  });
+                  setAdjustForm({...adjustForm, variantId: vId, productId: pId});
+                }} required>
+                  <option value="">Select an item...</option>
+                  {products?.map((p: any) => (
+                    <optgroup key={p._id} label={p.name}>
+                       {p.variants?.map((v: any) => (
+                         <option key={v._id} value={v._id}>{p.name} ({v.sku})</option>
+                       ))}
+                    </optgroup>
+                  ))}
                 </select>
               </div>
 

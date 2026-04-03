@@ -17,6 +17,9 @@ export class Invoice {
   @Prop({ type: Types.ObjectId })
   referenceId: Types.ObjectId; // Purchase or Sale ID
 
+  @Prop({ type: Types.ObjectId, ref: 'Customer' })
+  customerId: Types.ObjectId;
+
   @Prop({
     type: [
       {

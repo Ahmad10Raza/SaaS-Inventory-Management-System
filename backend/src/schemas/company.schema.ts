@@ -57,8 +57,8 @@ export class Company {
   // ── Industry & Business Type ─────────────────────────
   @Prop({
     enum: [
-      'electronics_store',
-      'clothing_store',
+      'electronics',
+      'clothing',
       'pharmacy',
       'grocery_store',
       'iron_factory',

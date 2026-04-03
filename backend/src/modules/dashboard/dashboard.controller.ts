@@ -32,4 +32,9 @@ export class DashboardController {
   getStockDistribution(@Request() req: any) {
     return this.dashboardService.getStockDistribution(req.user.companyId);
   }
+
+  @Get('business-metrics') @RequirePermissions('dashboard.read')
+  getBusinessMetrics(@Request() req: any) {
+    return this.dashboardService.getBusinessMetrics(req.user.companyId);
+  }
 }

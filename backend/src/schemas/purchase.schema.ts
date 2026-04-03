@@ -20,9 +20,10 @@ export class Purchase {
   @Prop({
     type: [
       {
-        productId: { type: Types.ObjectId, ref: 'Product' },
+        variantId: { type: Types.ObjectId, ref: 'ProductVariant' },
         productName: String,
         quantity: Number,
+        receivedQuantity: { type: Number, default: 0 },
         unitPrice: Number,
         taxPercentage: Number,
         taxAmount: Number,
@@ -32,9 +33,10 @@ export class Purchase {
     default: [],
   })
   items: {
-    productId: Types.ObjectId;
+    variantId: Types.ObjectId;
     productName: string;
     quantity: number;
+    receivedQuantity: number;
     unitPrice: number;
     taxPercentage: number;
     taxAmount: number;
@@ -51,10 +53,13 @@ export class Purchase {
   discount: number;
 
   @Prop({ default: 0 })
+  transportCost: number;
+
+  @Prop({ default: 0 })
   totalAmount: number;
 
   @Prop({
-    enum: ['draft', 'pending', 'approved', 'received', 'cancelled'],
+    enum: ['draft', 'pending', 'approved', 'ordered', 'partially_received', 'fully_received', 'received', 'cancelled'],
     default: 'draft',
   })
   status: string;

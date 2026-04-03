@@ -33,7 +33,13 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormData) => {
     try {
       await login(data.email, data.password);
-      navigate('/dashboard');
+      // Super admin goes to admin dashboard, regular users to tenant dashboard
+      const user = useAuthStore.getState().user;
+      if (user?.role === 'super_admin') {
+        navigate('/admin');
+      } else {
+        navigate('/dashboard');
+      }
     } catch {
       // Error is handled by the store
     }

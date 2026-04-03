@@ -135,11 +135,14 @@ export default function AdminCompaniesPage() {
         <div className="flex items-center gap-2">
           {i.isActive ? (
             <Button 
+              type="button"
               size="icon" 
               variant="outline" 
               className="h-8 w-8 text-amber-600 border-amber-600 hover:bg-amber-50"
-              onClick={() => {
-                if(confirm(`Suspend ${i.name}?`)) statusMut.mutate({ id: i._id, isActive: false, reason: 'Manual suspension' });
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                statusMut.mutate({ id: i._id, isActive: false, reason: 'Manual suspension' });
               }}
               title="Suspend Tenant"
             >
@@ -147,10 +150,15 @@ export default function AdminCompaniesPage() {
             </Button>
           ) : (
             <Button 
+              type="button"
               size="icon" 
               variant="outline" 
               className="h-8 w-8 text-green-600 border-green-600 hover:bg-green-50"
-              onClick={() => statusMut.mutate({ id: i._id, isActive: true })}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                statusMut.mutate({ id: i._id, isActive: true });
+              }}
               title="Activate Tenant"
             >
               <ShieldCheck className="h-4 w-4" />
@@ -172,11 +180,14 @@ export default function AdminCompaniesPage() {
           
           {!i.isActive && (
             <Button 
+              type="button"
               size="icon" 
               variant="outline" 
               className="h-8 w-8 text-red-600 border-red-600 hover:bg-red-50"
-              onClick={() => {
-                if(confirm(`PERMANENTLY delete ${i.name}? This cannot be undone.`)) deleteMut.mutate(i._id);
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                deleteMut.mutate(i._id);
               }}
               title="Delete Forever"
             >
